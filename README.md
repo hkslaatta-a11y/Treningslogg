@@ -18,3 +18,6 @@ Dette er en installérbar webapp for iPhone. Den trenger ikke Xcode, men må lig
 Last inn hele mappen på en enkel statisk HTTPS-host (for eksempel GitHub Pages, Cloudflare Pages eller Netlify). Åpne deretter adressen i Safari på iPhone og velg Del → Legg til på Hjem-skjerm.
 
 Viktig: Å åpne index.html direkte fra Filer-appen er ikke nok for full PWA/offline-funksjonalitet; den bør serveres over HTTPS.
+
+## v2.1 – skysynk
+Supabase-støtte er lagt til. Se `SKYOPPSETT.md` og kjør `supabase-setup.sql` i Supabase SQL Editor. Appen fungerer fortsatt lokalt dersom skyen ikke er konfigurert eller nettet er borte.
