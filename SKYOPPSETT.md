@@ -15,3 +15,6 @@ Bruk aldri Supabase `service_role`-nøkkelen i appen.
 Fullførte økter og programendringer synkroniseres automatisk. Appen sjekker også skyen omtrent hvert 20. sekund mens den er åpen, og når den kommer tilbake i forgrunnen. En pågående økt forblir lokal på telefonen til den fullføres.
 
 Ta fortsatt JSON-backup med jevne mellomrom.
+
+## v2.2.0
+`supabase-setup.sql` i denne pakken bruker `gen_random_uuid()` for delingskode og inneholder ikke den tidligere `gen_random_bytes`-linjen. Hvis skyen allerede fungerer, trenger du ikke kjøre SQL-filen på nytt.

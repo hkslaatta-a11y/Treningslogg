@@ -1,4 +1,4 @@
--- Treningslogg v2.1 – Supabase-oppsett
+-- Treningslogg v2.2 – Supabase-oppsett (korrigert delingskode)
 -- Kjør hele dette skriptet én gang i Supabase > SQL Editor.
 
 create extension if not exists pgcrypto;
@@ -85,7 +85,7 @@ begin
   end if;
 
   loop
-    new_code := upper(encode(gen_random_bytes(6), 'hex'));
+    new_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
     exit when not exists (
       select 1 from public.training_households h where h.invite_code = new_code
     );
