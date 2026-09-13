@@ -1,8 +1,14 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.3.0';
+const APP_VERSION='2.3.1';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
 const CLOUD_META_KEY='treningslogg-cloud-meta-v1';
+const DEFAULT_CLOUD_CONFIG={
+  url:'https://ybzvccszcmijkppowlmv.supabase.co',
+  key:'sb_publishable_1VUkyD3k08qPFynmH3fB3Q_iA8ljk3b'
+};
+let recoveryMode=/(?:^|[?#&])type=recovery(?:&|$)/i.test(location.href);
+let recoveryPromptShown=false;
 
 const mePrograms=[
   {name:'Full Body A',notes:'Lavere beinvolum. Behold full ROM, kontrollert tempo og 1–2 RIR på hovedøvelsene.',exercises:[
@@ -107,7 +113,12 @@ let state=loadState();let timerHandle=null;
 let cloudClient=null,cloudReady=false,cloudSyncTimer=null,cloudPollTimer=null,cloudLastProfileSnapshot=JSON.stringify(state.profiles||[]),cloudApplying=false,cloudWriteInFlight=false,cloudSuppressPullUntil=0;
 let cloudMeta=loadCloudMeta();
 saveState();
-function loadCloudConfig(){try{return JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY)||'{}')}catch(e){return{}}}
+function loadCloudConfig(){
+  try{
+    const stored=JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY)||'{}');
+    return {url:stored.url||DEFAULT_CLOUD_CONFIG.url,key:stored.key||DEFAULT_CLOUD_CONFIG.key};
+  }catch(e){return {...DEFAULT_CLOUD_CONFIG};}
+}
 function saveCloudConfig(c){localStorage.setItem(CLOUD_CONFIG_KEY,JSON.stringify(c||{}));}
 function loadCloudMeta(){try{return JSON.parse(localStorage.getItem(CLOUD_META_KEY)||'{}')}catch(e){return{}}}
 function saveCloudMeta(){localStorage.setItem(CLOUD_META_KEY,JSON.stringify(cloudMeta||{}));}
@@ -121,18 +132,24 @@ async function initCloud(){
     cloudClient=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     const {data}=await cloudClient.auth.getSession();
     cloudReady=!!data?.session;
+    if(recoveryMode&&cloudReady)ensureRecoveryPrompt();
     if(cloudReady)await resolveCloudHousehold();
     cloudClient.auth.onAuthStateChange(async(event,session)=>{
       cloudReady=!!session;
+      if(event==='PASSWORD_RECOVERY'||recoveryMode)ensureRecoveryPrompt();
       if(cloudReady)await resolveCloudHousehold();
-      if(event==='PASSWORD_RECOVERY')setTimeout(()=>showPasswordRecoveryModal(),0);
       renderSettings();
     });
-    if(location.hash.includes('type=recovery'))setTimeout(()=>showPasswordRecoveryModal(),150);
+    if(recoveryMode)ensureRecoveryPrompt();
     if(cloudPollTimer)clearInterval(cloudPollTimer);
-    cloudPollTimer=setInterval(()=>{if(cloudReady&&cloudMeta.householdId&&document.visibilityState==='visible')pullCloud(false);},20000);
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&cloudMeta.householdId)pullCloud(false);},{passive:true});
+    cloudPollTimer=setInterval(()=>{if(cloudReady&&cloudMeta.householdId&&document.visibilityState==='visible'&&!recoveryMode)pullCloud(false);},20000);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&cloudMeta.householdId&&!recoveryMode)pullCloud(false);},{passive:true});
   }catch(e){cloudReady=false;}
+}
+function ensureRecoveryPrompt(){
+  if(!recoveryMode||!cloudClient||recoveryPromptShown)return;
+  recoveryPromptShown=true;
+  setTimeout(()=>showPasswordRecoveryModal(),0);
 }
 async function resolveCloudHousehold(){
   if(!cloudClient)return;
@@ -178,7 +195,7 @@ function showPasswordRecoveryModal(){
   if(!cloudClient)return;
   const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');
   if(!m||!b)return;
-  b.innerHTML=`<h3>Sett nytt passord</h3><p class="muted small">Recovery-lenken er godkjent. Velg et nytt passord for Treningslogg-kontoen.</p><div class="stack"><label>Nytt passord<input id="recoveryPassword" type="password" autocomplete="new-password" minlength="6"></label><label>Bekreft nytt passord<input id="recoveryPassword2" type="password" autocomplete="new-password" minlength="6"></label><button type="button" class="primary" id="saveRecoveryPassword">Lagre nytt passord</button><button value="cancel" class="ghost">Avbryt</button></div>`;
+  b.innerHTML=`<h3>Sett nytt passord</h3><p class="muted small">Recovery-lenken er godkjent. Velg et nytt passord før du fortsetter til Treningslogg.</p><div class="stack"><label>Nytt passord<input id="recoveryPassword" type="password" autocomplete="new-password" minlength="6"></label><label>Bekreft nytt passord<input id="recoveryPassword2" type="password" autocomplete="new-password" minlength="6"></label><button type="button" class="primary" id="saveRecoveryPassword">Lagre nytt passord</button></div>`;
   const btn=b.querySelector('#saveRecoveryPassword');
   btn.onclick=async()=>{
     const p1=b.querySelector('#recoveryPassword').value,p2=b.querySelector('#recoveryPassword2').value;
@@ -188,7 +205,8 @@ function showPasswordRecoveryModal(){
     try{
       const {error}=await cloudClient.auth.updateUser({password:p1});
       if(error)throw error;
-      history.replaceState({},document.title,location.origin+location.pathname+location.search);
+      recoveryMode=false;recoveryPromptShown=false;
+      history.replaceState({},document.title,location.origin+location.pathname);
       cloudReady=true;await resolveCloudHousehold();
       try{m.close();}catch(_){}
       renderAll();toast('Passordet er oppdatert');
@@ -290,10 +308,10 @@ function importData(ev){const f=ev.target.files?.[0];if(!f)return;const r=new Fi
 async function renderSettings(){
   const el=document.querySelector('#settings'),cfg=loadCloudConfig();let user=null;if(cloudClient&&cloudReady)user=await currentCloudUser();
   const cloudCard=!cloudConfigured()?`<div class="card"><span class="eyebrow">Nyhet i v${APP_VERSION}</span><h2>Skylagring og synk</h2><p class="muted small">Koble appen til et gratis Supabase-prosjekt. Lim inn <strong>Project URL</strong> og <strong>anon/publishable key</strong> fra Supabase. Bruk aldri service_role-nøkkelen.</p><div class="stack"><label>Supabase Project URL<input id="cloudUrl" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url||'')}"></label><label>Anon / publishable key<input id="cloudKey" type="password" placeholder="sb_publishable_… eller anon key" value="${esc(cfg.key||'')}"></label><button class="primary" id="saveCloudConfig">Lagre skyoppsett</button></div></div>`:
-  !user?`<div class="card"><span class="eyebrow">Skylagring</span><h2>Logg inn</h2><p class="muted small">Håvard og Stine lager hver sin Supabase-bruker. Etterpå kobles begge til samme treningskonto med en delingskode.</p><div class="stack"><label>E-post<input id="cloudEmail" type="email" autocomplete="email"></label><label>Passord<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6"></label><div class="grid2"><button class="ghost" id="cloudRegister">Opprett bruker</button><button class="primary" id="cloudLogin">Logg inn</button></div><button class="ghost" id="forgotPassword" type="button">Glemt passord</button><button class="text-danger" id="clearCloudConfig">Endre Supabase-oppsett</button></div></div>`:
+  !user?`<div class="card"><span class="eyebrow">Skylagring</span><h2>Logg inn</h2><p class="muted small">Skyoppsettet er nå innebygd i appen. Håvard og Stine logger bare inn med hver sin Supabase-bruker.</p><div class="stack"><label>E-post<input id="cloudEmail" type="email" autocomplete="email"></label><label>Passord<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6"></label><div class="grid2"><button class="ghost" id="cloudRegister">Opprett bruker</button><button class="primary" id="cloudLogin">Logg inn</button></div><button class="ghost" id="forgotPassword" type="button">Glemt passord</button></div></div>`:
   !cloudMeta.householdId?`<div class="card"><span class="eyebrow">Innlogget</span><h2>${esc(user.email||'Supabase-bruker')}</h2><p class="muted small">På Håvard sin telefon: opprett den delte treningskontoen. På Stine sin telefon: skriv inn delingskoden Håvard får.</p><div class="stack"><button class="primary" id="createHousehold">Opprett delt treningskonto</button><div class="divider">eller</div><label>Delingskode<input id="joinCode" autocomplete="off" autocapitalize="characters" placeholder="F.eks. A1B2C3D4E5F6"></label><button class="ghost" id="joinHousehold">Koble til eksisterende konto</button><button class="text-danger" id="cloudLogout">Logg ut</button></div></div>`:
   `<div class="card"><span class="eyebrow">Skysynk aktiv</span><h2>${esc(user.email||'Innlogget')}</h2><div class="cloud-ok">✓ Håvard og Stine kan synkronisere samme data</div><p class="muted small">Delingskode: <strong class="code">${esc(cloudMeta.inviteCode||'—')}</strong></p><label>Denne telefonen brukes primært av<select id="deviceProfile">${state.profiles.map(p=>`<option value="${p.id}" ${cloudMeta.deviceProfileId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="stack" style="margin-top:10px"><button class="primary" id="syncNow">Synkroniser nå</button><div id="cloudStatus" class="muted small"></div><button class="text-danger" id="cloudLogout">Logg ut av skyen</button></div></div>`;
-  el.innerHTML=`${cloudCard}<div class="card"><h2>Backup og data</h2><p class="muted small"><strong>Behold fortsatt lokale backups.</strong> Skylagring synkroniserer program og fullførte økter mellom telefonene, mens en JSON-backup er ekstra sikkerhet.</p><div class="stack"><button class="primary" id="exportBtn">Eksporter full backup</button><label class="file-label">Importer backup<input type="file" id="importFile" accept="application/json,.json"></label></div></div><div class="card"><h3>Profiler</h3><p class="muted small">Begge profiler og all fullført historikk deles når skysynk er aktiv. Pågående økt lagres lokalt på telefonen til den fullføres.</p>${state.profiles.map(p=>`<label>Profilnavn<input data-profile-name="${p.id}" value="${esc(p.name)}"></label><label>Rapport-e-post for ${esc(p.name)}<input type="email" data-report-email="${p.id}" value="${esc(p.reportEmail||'')}" placeholder="navn@epost.no"></label>`).join('')}</div><div class="card"><h3>Startside</h3><label class="toggle-row"><input type="checkbox" id="showSplashSetting" ${shouldShowSplash()?'checked':''}><span><strong>Vis startside ved oppstart</strong><small>Innstillingen gjelder denne telefonen.</small></span></label><button class="ghost" id="previewSplash" style="margin-top:10px">Vis startsiden nå</button></div><div class="card"><h3>App</h3><p class="muted small">Treningslogg v${APP_VERSION} · Håvard & Stine · programeditor på mobil · valgfrie øvelser · kommentarer · historikkredigering · månedsrapport · Supabase-skysynk.</p></div>`;
+  el.innerHTML=`${cloudCard}<div class="card"><h2>Backup og data</h2><p class="muted small"><strong>Behold fortsatt lokale backups.</strong> Skylagring synkroniserer program og fullførte økter mellom telefonene, mens en JSON-backup er ekstra sikkerhet.</p><div class="stack"><button class="primary" id="exportBtn">Eksporter full backup</button><label class="file-label">Importer backup<input type="file" id="importFile" accept="application/json,.json"></label></div></div><div class="card"><h3>Profiler</h3><p class="muted small">Begge profiler og all fullført historikk deles når skysynk er aktiv. Pågående økt lagres lokalt på telefonen til den fullføres.</p>${state.profiles.map(p=>`<label>Profilnavn<input data-profile-name="${p.id}" value="${esc(p.name)}"></label><label>Rapport-e-post for ${esc(p.name)}<input type="email" data-report-email="${p.id}" value="${esc(p.reportEmail||'')}" placeholder="navn@epost.no"></label>`).join('')}</div><div class="card"><h3>Startside</h3><label class="toggle-row"><input type="checkbox" id="showSplashSetting" ${shouldShowSplash()?'checked':''}><span><strong>Vis startside ved oppstart</strong><small>Innstillingen gjelder denne telefonen.</small></span></label><button class="ghost" id="previewSplash" style="margin-top:10px">Vis startsiden nå</button></div><div class="card"><h3>App</h3><p class="muted small">Treningslogg v${APP_VERSION} · Håvard & Stine · innebygd skyoppsett · robust passordreset · programeditor på mobil · valgfrie øvelser · kommentarer · historikkredigering · månedsrapport · Supabase-skysynk.</p></div>`;
   el.querySelector('#exportBtn').onclick=exportData;el.querySelector('#importFile').onchange=importData;el.querySelectorAll('[data-profile-name]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.profileName);if(p&&x.value.trim()){p.name=x.value.trim();saveState();renderAll();}});el.querySelectorAll('[data-report-email]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.reportEmail);if(p){p.reportEmail=x.value.trim();saveState();}});const ss=el.querySelector('#showSplashSetting');if(ss)ss.onchange=()=>setSplashPreference(ss.checked);const ps=el.querySelector('#previewSplash');if(ps)ps.onclick=()=>{const sp=document.querySelector('#splashScreen');sp.classList.remove('hidden');sp.setAttribute('aria-hidden','false');};
   const saveCfg=el.querySelector('#saveCloudConfig');if(saveCfg)saveCfg.onclick=()=>{const url=el.querySelector('#cloudUrl').value.trim().replace(/\/$/,'');const key=el.querySelector('#cloudKey').value.trim();if(!/^https:\/\/.+\.supabase\.co$/i.test(url)||!key)return toast('Kontroller URL og nøkkel');saveCloudConfig({url,key});location.reload();};
   const clearCfg=el.querySelector('#clearCloudConfig');if(clearCfg)clearCfg.onclick=()=>{if(confirm('Fjerne Supabase-oppsettet fra denne telefonen? Lokale treningsdata beholdes.')){localStorage.removeItem(CLOUD_CONFIG_KEY);cloudMeta={deviceProfileId:cloudMeta.deviceProfileId};saveCloudMeta();location.reload();}};
