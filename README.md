@@ -1,6 +1,7 @@
-# Treningslogg v2.2.3
+# Treningslogg PWA v2.4.0
 
-Feilretting for redigering av historikk på begge profiler. En lagret korrigering skrives nå umiddelbart til Supabase med et fast snapshot før automatisk bakgrunnssynk får hente gammel data. Bakgrunnshenting pauses også mens et redigeringsvindu er åpent.
+Delt treningslogg for Håvard og Stine med Supabase-synk, programeditor, valgfrie øvelser, kommentarer, redigering av historikk, månedsrapport og korrekt logging av kroppsvektøvelser som KV / +kg / assistanse.
 
-## v2.3.0
-Programmer kan nå vedlikeholdes direkte i appen på mobil. Under Program finnes eksport/import og tilbakestilling til originalmal. Programendringer synkroniseres via Supabase på samme måte som øvrige profildata.
+Supabase Project URL og publishable key er innebygd i appen. `service_role` brukes aldri i klienten.
+
+Se `OPPDATERING-v2.4.0.md` før oppdatering.

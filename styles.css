@@ -10,3 +10,15 @@
 .editor-row .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .editor-row button[disabled]{opacity:.35;pointer-events:none}
 @media(max-width:640px){.program-tool-grid{grid-template-columns:1fr}.program-import{width:100%}}
+
+/* v2.4.0 – kroppsvektlogging */
+.set-head.bw,.set-row.bw{grid-template-columns:26px .9fr .9fr 1fr .9fr 44px}
+.set-row.bw select{min-height:44px;padding:7px 6px;text-align:center}
+.set-row.bw input[disabled]{opacity:.45;background:#0a0d0c}
+.edit-set-row.bw{grid-template-columns:58px .9fr .9fr 1fr 1fr 32px}
+.bw-tag{background:#13231b;color:#9fc8ad;border:1px solid #294333}
+@media(max-width:520px){
+  .set-head.bw,.set-row.bw{grid-template-columns:22px .85fr .8fr .9fr .8fr 40px;gap:4px}
+  .set-row.bw select,.set-row.bw input{font-size:14px;padding-left:4px;padding-right:4px}
+  .edit-set-row.bw{grid-template-columns:44px .9fr .8fr .9fr .9fr 28px;gap:4px}
+}
