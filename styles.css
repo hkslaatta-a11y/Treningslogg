@@ -42,3 +42,6 @@
 .reorder-item.dragging{opacity:.72;transform:scale(.995);box-shadow:0 14px 34px #0007;border-color:var(--accent)}
 body.is-reordering{overscroll-behavior:none}
 @media(max-width:520px){.bank-filter-grid{grid-template-columns:1fr}.drag-handle{width:38px;height:38px;flex-basis:38px}}
+
+/* v2.6.1 mobile drag fixes */
+.is-reordering{overflow:hidden;touch-action:none}.reorder-item.dragging{opacity:.86;transform:scale(.995);box-shadow:0 10px 30px rgba(0,0,0,.35)}
