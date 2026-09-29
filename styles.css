@@ -45,3 +45,9 @@ body.is-reordering{overscroll-behavior:none}
 
 /* v2.6.1 mobile drag fixes */
 .is-reordering{overflow:hidden;touch-action:none}.reorder-item.dragging{opacity:.86;transform:scale(.995);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+
+/* v2.6.2 – mobil rekkefølge */
+.reorder-source{display:none!important}
+.reorder-placeholder{border:2px dashed var(--accent);border-radius:16px;background:rgba(255,255,255,.035);box-sizing:border-box;min-height:54px}
+.reorder-ghost{opacity:.96!important;transform:scale(1.015)!important;box-shadow:0 22px 50px rgba(0,0,0,.58)!important;border-color:var(--accent)!important;overflow:hidden;will-change:left,top}
+body.is-reordering{touch-action:none!important;user-select:none;-webkit-user-select:none}

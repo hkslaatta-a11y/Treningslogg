@@ -12,3 +12,7 @@ Felles, synkronisert øvelsesbank. Programøvelser og alternativer importeres au
 
 ## v2.6.0
 Søk/filtre i øvelsesbank, drag-and-drop-rekkefølge og støtte for norske desimalkomma i vekter.
+
+
+## v2.6.2
+Forbedret mobil drag-and-drop med flytende kort, alternative øvelser i pågående økt og dynamisk «Sist»-historikk for valgt øvelse.
