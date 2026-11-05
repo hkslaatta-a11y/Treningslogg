@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.6.2';
+const APP_VERSION='2.7.0';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
 const CLOUD_META_KEY='treningslogg-cloud-meta-v1';
@@ -323,9 +323,98 @@ function progressionSuggestion(e){
 }
 
 function startWorkout(programId){const p=profile().programs.find(x=>x.id===programId);if(!p)return;if(state.active&&!confirm('Du har allerede en pågående økt. Erstatt den?'))return;openWorkoutSetup(p);}
-function openWorkoutSetup(p){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>${esc(p.name)}</h3><p class="muted small">Velg valgfrie øvelser før du starter. Du kan også legge til engangsøvelser underveis.</p><div class="stack optional-list">${p.exercises.map(e=>`<label class="toggle-row"><input type="checkbox" data-pick="${e.id}" ${e.optional?'':'checked'}><span><strong>${esc(e.name)}</strong>${e.optional?'<em>Valgfri</em>':''}<small>${e.targetSets} × ${esc(e.targetReps||'–')}</small></span></label>`).join('')}</div><div class="grid2"><button value="cancel" class="ghost">Avbryt</button><button type="button" class="primary" id="confirmStart">Start økt</button></div>`;m.showModal();b.querySelector('#confirmStart').onclick=()=>{const chosen=new Set([...b.querySelectorAll('[data-pick]:checked')].map(x=>x.dataset.pick));const selected=p.exercises.filter(e=>chosen.has(e.id));if(!selected.length)return toast('Velg minst én øvelse');state.active={id:uid(),profileId:state.currentProfileId,programID:p.id,name:p.name,startedAt:new Date().toISOString(),notes:'',exercises:selected.map(e=>({id:uid(),sourceExerciseID:e.id,name:e.name,originalName:e.name,targetReps:e.targetReps,tempo:e.tempo,restSeconds:e.restSeconds,notes:e.notes,comment:'',alternatives:e.alternatives||[],bodyweight:typeof e.bodyweight==='boolean'?e.bodyweight:isBodyweightExercise(e.name),sets:Array.from({length:Number(e.targetSets)||3},()=>newSetForExercise(e,false))}))};saveState();m.close();setTab('workout');};}
+function bonusSuggestions(pid=state.currentProfileId){
+  const last=profileSessions(pid)[0];
+  if(!last||/bonus/i.test(last.name||''))return[];
+  return (last.omittedExercises||[]).filter(e=>e.reason==='skipped').map(e=>clone(e));
+}
+function workoutExerciseFromPlan(e,origin=null){
+  return {id:uid(),sourceExerciseID:origin?.id||null,name:e.name,originalName:origin?.name||e.name,
+    targetSets:Math.max(1,Number(e.targetSets)||3),originalTargetSets:Math.max(1,Number(e.targetSets)||3),
+    targetReps:e.targetReps||'',tempo:e.tempo||'',restSeconds:e.restSeconds??120,
+    notes:e.notes||'',comment:'',alternatives:clone(e.alternatives||[]),
+    bodyweight:typeof e.bodyweight==='boolean'?e.bodyweight:isBodyweightExercise(e.name),
+    sets:Array.from({length:Math.max(1,Number(e.targetSets)||3)},()=>newSetForExercise(e,false))};
+}
+function openWorkoutSetup(p){
+  if(!p)return;
+  const modal=document.querySelector('#modal'),body=document.querySelector('#modalBody');
+  const isBonus=/bonus/i.test(p.name||'');
+  const rows=(p.exercises||[]).map(e=>({origin:clone(e),item:clone(e),selected:!e.optional,extra:false,suggested:false}));
+  if(isBonus)for(const e of bonusSuggestions()){
+    rows.unshift({origin:null,item:{...e,id:uid()},selected:false,extra:true,suggested:true});
+  }
+  const draw=()=>{
+    body.innerHTML=`<div class="row wrap"><h3>${esc(p.name)} · Klargjør økt</h3><button type="button" class="ghost compact" id="setupClose">Lukk ×</button></div>
+      <p class="muted small">Velg, bytt og juster sett. Endringene gjelder bare denne økten.</p>
+      ${isBonus&&rows.some(r=>r.suggested)?'<p class="suggestion">Forslag fra forrige økt: huk av dem du vil ta i bonusøkten. Forslagene forsvinner etter neste gjennomførte økt.</p>':''}
+      <div class="setup-list">${rows.map((r,i)=>`<div class="setup-item ${r.selected?'':'setup-off'}">
+        <div class="row wrap"><label class="setup-check"><input type="checkbox" data-setup-pick="${i}" ${r.selected?'checked':''}><span><strong>${esc(r.item.name)}</strong>${r.suggested?' <span class="tag">Fra forrige økt</span>':''}<small>${esc(r.item.targetReps||'')} ${r.origin?.optional?'· Valgfri':''}</small></span></label>
+          <button type="button" class="ghost compact" data-setup-swap="${i}">Bytt</button></div>
+        <div class="row wrap"><span class="muted small">Sett i dag</span><div class="actions">
+          <button type="button" class="ghost compact" data-setup-minus="${i}" ${Number(r.item.targetSets)<=1?'disabled':''} aria-label="Færre sett">−</button>
+          <strong>${Math.max(1,Number(r.item.targetSets)||3)}</strong>
+          <button type="button" class="ghost compact" data-setup-plus="${i}" ${Number(r.item.targetSets)>=12?'disabled':''} aria-label="Flere sett">+</button>
+          <button type="button" class="ghost compact" data-setup-up="${i}" ${i===0?'disabled':''} aria-label="Flytt opp">↑</button>
+          <button type="button" class="ghost compact" data-setup-down="${i}" ${i===rows.length-1?'disabled':''} aria-label="Flytt ned">↓</button>
+          ${r.extra?`<button type="button" class="text-danger" data-setup-del="${i}">Fjern</button>`:''}
+        </div></div></div>`).join('')}</div>
+      <div class="stack"><button type="button" class="ghost" id="setupAdd">+ Legg til fra øvelsesbanken</button>
+      <p class="muted small" id="setupCount"></p>
+      <div class="grid2"><button type="button" class="ghost" id="setupCancel">Avbryt</button><button type="button" class="primary" id="confirmStart">Start økt</button></div></div>`;
+    const total=rows.filter(x=>x.selected).reduce((n,x)=>n+Number(x.item.targetSets||0),0);
+    body.querySelector('#setupCount').textContent=`${rows.filter(x=>x.selected).length} øvelser · ${total} planlagte sett`;
+    body.querySelector('#setupClose').onclick=()=>modal.close();
+    body.querySelector('#setupCancel').onclick=()=>modal.close();
+    body.querySelectorAll('[data-setup-pick]').forEach(x=>x.onchange=()=>{rows[+x.dataset.setupPick].selected=x.checked;draw();});
+    body.querySelectorAll('[data-setup-minus]').forEach(x=>x.onclick=()=>{const r=rows[+x.dataset.setupMinus];r.item.targetSets=Math.max(1,Number(r.item.targetSets)-1);draw();});
+    body.querySelectorAll('[data-setup-plus]').forEach(x=>x.onclick=()=>{const r=rows[+x.dataset.setupPlus];r.item.targetSets=Math.min(12,Number(r.item.targetSets)+1);draw();});
+    body.querySelectorAll('[data-setup-up]').forEach(x=>x.onclick=()=>{const i=+x.dataset.setupUp;if(i>0){[rows[i-1],rows[i]]=[rows[i],rows[i-1]];draw();}});
+    body.querySelectorAll('[data-setup-down]').forEach(x=>x.onclick=()=>{const i=+x.dataset.setupDown;if(i<rows.length-1){[rows[i+1],rows[i]]=[rows[i],rows[i+1]];draw();}});
+    body.querySelectorAll('[data-setup-del]').forEach(x=>x.onclick=()=>{rows.splice(+x.dataset.setupDel,1);draw();});
+    body.querySelectorAll('[data-setup-swap]').forEach(x=>x.onclick=()=>{
+      const idx=+x.dataset.setupSwap;
+      openBankPicker(item=>{rows[idx].item={...clone(item),targetSets:rows[idx].item.targetSets};rows[idx].selected=true;draw();if(!modal.open)modal.showModal();},{allowCreate:true});
+    });
+    body.querySelector('#setupAdd').onclick=()=>openBankPicker(item=>{
+      rows.push({origin:null,item:{...clone(item),id:uid()},selected:true,extra:true,suggested:false});
+      draw();if(!modal.open)modal.showModal();
+    },{allowCreate:true});
+    body.querySelector('#confirmStart').onclick=()=>{
+      if(!rows.some(r=>r.selected))return toast('Velg minst én øvelse');
+      if(state.active&&!confirm('Du har en pågående økt. Erstatt den?'))return;
+      const omittedExercises=rows.filter(r=>r.origin&&(!r.selected||normalizedName(r.origin.name)!==normalizedName(r.item.name))).map(r=>({
+        sourceExerciseID:r.origin.id,name:r.origin.name,targetSets:r.origin.targetSets,targetReps:r.origin.targetReps,
+        tempo:r.origin.tempo,restSeconds:r.origin.restSeconds,notes:r.origin.notes,
+        bodyweight:r.origin.bodyweight,reason:r.selected?'replaced':'skipped'
+      }));
+      state.active={id:uid(),profileId:state.currentProfileId,programID:p.id,name:p.name,
+        startedAt:new Date().toISOString(),notes:'',omittedExercises,
+        exercises:rows.filter(r=>r.selected).map(r=>workoutExerciseFromPlan(r.item,r.origin))};
+      saveState();modal.close();setTab('workout');
+    };
+  };
+  draw();if(!modal.open)modal.showModal();
+}
 function addSet(eid){const e=state.active?.exercises.find(x=>x.id===eid);if(!e)return;e.sets.push(newSetForExercise(e,false));saveState();renderWorkout();}
-function removeExercise(eid){if(!state.active)return;state.active.exercises=state.active.exercises.filter(e=>e.id!==eid);saveState();renderWorkout();}
+function removeLastSet(eid){
+  const e=state.active?.exercises.find(x=>x.id===eid);if(!e||e.sets.length<=1)return;
+  const last=e.sets.at(-1);
+  if((last.completed||last.reps!==''||last.weight!==''||last.rir!=='')&&!confirm('Fjerne siste sett og det registrerte resultatet?'))return;
+  e.sets.pop();saveState();renderWorkout();
+}
+function removeExercise(eid){
+  const a=state.active,e=a?.exercises.find(x=>x.id===eid);if(!e)return;
+  if((e.sets||[]).some(st=>st.completed||st.reps!==''||st.weight!==''))return toast('Øvelsen har loggede sett. Fjern sett i stedet.');
+  if(e.sourceExerciseID){
+    a.omittedExercises=a.omittedExercises||[];
+    if(!a.omittedExercises.some(x=>x.sourceExerciseID===e.sourceExerciseID&&x.reason==='skipped'))
+      a.omittedExercises.push({sourceExerciseID:e.sourceExerciseID,name:e.originalName||e.name,
+        targetSets:e.originalTargetSets||e.sets.length,targetReps:e.targetReps,tempo:e.tempo,
+        restSeconds:e.restSeconds,notes:e.notes,bodyweight:e.bodyweight,reason:'skipped'});
+  }
+  a.exercises=a.exercises.filter(x=>x.id!==eid);saveState();renderWorkout();
+}
 function updateSet(eid,sid,key,value){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s[key]=value;if(key==='loadType'&&value==='bw')s.weight='';saveState();if(key==='loadType')renderWorkout();else updateWorkoutSummary();}
 function toggleSet(eid,sid){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s.completed=!s.completed;if(s.completed&&e.restSeconds)startTimer(e.restSeconds);saveState();renderWorkout();}
 function startTimer(sec){state.timer={end:Date.now()+sec*1000,duration:sec};saveState();tickTimer();clearInterval(timerHandle);timerHandle=setInterval(tickTimer,1000);}
