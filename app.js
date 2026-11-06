@@ -790,7 +790,7 @@ function exerciseReactionsMarkup(sess,e,si,ei){
   return `<div class="reaction-area">
     ${labels}
     <button type="button" class="reaction-toggle" data-react-toggle="${si}:${ei}" aria-label="Reager på ${esc(e.name)}" aria-haspopup="true" aria-expanded="false" title="Reager på øvelsen">
-      <span aria-hidden="true">${chosen?'😊':'😊'}</span>
+      <span aria-hidden="true">😊</span>
     </button>
     <div class="reaction-picker" hidden aria-label="Velg reaksjon for ${esc(e.name)}">
       ${['❤️','🔥','💪','👏','😍','🏆'].map(emoji=>`<button type="button" class="reaction-btn ${chosen===emoji?'selected':''}" data-react-session="${si}" data-react-ex="${ei}" data-react-emoji="${emoji}" aria-label="${chosen===emoji?`Fjern ${emoji}-reaksjon`:`Reager med ${emoji}`}" aria-pressed="${chosen===emoji}">${emoji}</button>`).join('')}
