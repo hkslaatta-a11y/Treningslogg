@@ -354,8 +354,8 @@ function openWorkoutSetup(p,extras=[]){
   const modal=document.querySelector('#modal'),body=document.querySelector('#modalBody');
   const isBonus=/bonus/i.test(p.name||'');
   const rows=(p.exercises||[]).map(e=>({origin:clone(e),item:clone(e),selected:!e.optional,extra:false,suggested:false}));
-  if(isBonus)for(const e of [...bonusSuggestions(),...extras].filter((e,i,a)=>a.findIndex(x=>normalizedName(x.name)===normalizedName(e.name))===i)){
-    rows.unshift({origin:null,item:{...e,id:uid()},selected:false,extra:true,suggested:true});
+  if(isBonus)for(const e of [...extras,...bonusSuggestions()].filter((e,i,a)=>a.findIndex(x=>normalizedName(x.name)===normalizedName(e.name))===i)){
+    rows.unshift({origin:null,item:{...e,id:uid()},selected:extras.some(x=>normalizedName(x.name)===normalizedName(e.name)),extra:true,suggested:true});
   }
   const draw=()=>{
     body.innerHTML=`<div class="row wrap"><h3>${esc(p.name)} · Klargjør økt</h3><button type="button" class="ghost compact" id="setupClose">Lukk ×</button></div>
