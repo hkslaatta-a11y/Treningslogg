@@ -109,18 +109,18 @@ body.is-reordering{touch-action:none!important;user-select:none;-webkit-user-sel
 .drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}
 @media(max-width:520px){.drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}}
 
-/* 2.7.2: Kompakt emoji-meny i historikken */
+/* 2.7.3: Diskret treprikk-knapp for reaksjoner i historikken */
 .reaction-area{position:relative}
 .reaction-toggle{
   display:inline-flex;align-items:center;justify-content:center;
   width:38px;min-width:38px;height:38px;min-height:38px;
-  border:1px solid var(--line);border-radius:12px;
-  background:var(--card2);color:var(--text);
-  font-size:19px;line-height:1;cursor:pointer;
-  transition:background .15s,border-color .15s;
+  border:1px solid transparent;border-radius:11px;
+  background:transparent;color:var(--muted);
+  font-size:13px;font-weight:800;letter-spacing:1px;line-height:1;cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s;
 }
-.reaction-toggle[aria-expanded="true"],.reaction-toggle:focus-visible{
-  border-color:var(--accent-strong);background:var(--accent2);
+.reaction-toggle:hover,.reaction-toggle[aria-expanded="true"],.reaction-toggle:focus-visible{
+  border-color:var(--line);background:var(--card2);color:var(--text);
 }
 .reaction-picker{
   position:absolute;z-index:20;left:0;top:calc(100% + 7px);
