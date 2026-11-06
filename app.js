@@ -1,6 +1,7 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
 const APP_VERSION='2.7.0';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
+const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
 const CLOUD_META_KEY='treningslogg-cloud-meta-v1';
 const DEFAULT_CLOUD_CONFIG={
@@ -304,6 +305,8 @@ function monthlyReportData(key,pid=state.currentProfileId){
 }
 function reportText(key,pid=state.currentProfileId){const pr=state.profiles.find(p=>p.id===pid),r=monthlyReportData(key,pid);let out=`Treningsrapport – ${pr?.name||''} – ${monthLabel(key)}\n\n${r.text}\n\n`;for(const x of r.rows){out+=`${x.name}\n`;out+=`Sett: ${x.sets} · Reps: ${x.reps}`;if(x.bodyweight)out+=` · Beste: ${formatLoadFromStats(x)} × ${x.bestLoadReps}`;else{if(x.bestWeight>0)out+=` · Tyngste vekt: ${fmtW(x.bestWeight)} kg`;if(x.bestE1RM>0)out+=` · Beste e1RM: ${x.bestE1RM.toFixed(1).replace('.',',')} kg`;}if(x.avgRir!=null)out+=` · Snitt RIR: ${x.avgRir.toFixed(1).replace('.',',')}`;out+=`\n${x.trend}\n\n`;}return out;}
 function sendMonthlyReportEmail(key){const p=profile(),to=(p.reportEmail||'').trim();if(!to){toast('Legg inn rapport-e-post under Data først');setTab('settings');return;}const subject=`Treningsrapport ${p.name} – ${monthLabel(key)}`,body=reportText(key);window.location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;}
+function activeTheme(){const x=localStorage.getItem(THEME_KEY)||'forest';return ['forest','midnight','copper','plum','light'].includes(x)?x:'forest';}
+function applyTheme(name=activeTheme()){const x=['forest','midnight','copper','plum','light'].includes(name)?name:'forest';localStorage.setItem(THEME_KEY,x);document.documentElement.dataset.theme=x;}
 function shouldShowSplash(){return localStorage.getItem(SHOW_SPLASH_KEY)!=='false';}
 function setSplashPreference(v){localStorage.setItem(SHOW_SPLASH_KEY,v?'true':'false');}
 function hideSplash(goProgram=false){const sp=document.querySelector('#splashScreen');if(sp){sp.classList.add('hidden');sp.setAttribute('aria-hidden','true');}if(goProgram)setTab('programs');}
@@ -458,73 +461,70 @@ function resetProgramsToOriginal(){
 
 function enableReorder(container,itemSelector,handleSelector,onOrder){
   if(!container)return;
-  const handles=[...container.querySelectorAll(handleSelector)];
-  const begin=(item,startX,startY)=>{
-    if(!item||item.dataset.reordering==='1')return null;
-    const rect=item.getBoundingClientRect(),style=getComputedStyle(item);
-    const placeholder=document.createElement('div');
-    placeholder.className='reorder-placeholder';
-    placeholder.style.height=`${rect.height}px`;
-    placeholder.style.marginTop=style.marginTop;
-    placeholder.style.marginBottom=style.marginBottom;
-    placeholder.dataset.reorderPlaceholder='1';
-    item.parentNode.insertBefore(placeholder,item);
-
-    const ghost=item.cloneNode(true);
-    ghost.classList.add('reorder-ghost','dragging');
-    ghost.removeAttribute('data-reorder-id');
-    ghost.querySelectorAll('input,select,textarea,button').forEach(x=>x.tabIndex=-1);
-    Object.assign(ghost.style,{position:'fixed',left:`${rect.left}px`,top:`${rect.top}px`,width:`${rect.width}px`,height:`${rect.height}px`,margin:'0',zIndex:'9999',pointerEvents:'none'});
-    document.body.appendChild(ghost);
-
-    item.dataset.reordering='1';
-    item.classList.add('reorder-source');
-    document.body.classList.add('is-reordering');
-    const offsetX=startX-rect.left,offsetY=startY-rect.top;
-    return{item,placeholder,ghost,offsetX,offsetY,lastY:startY,scrollRaf:null};
-  };
-  const placeAt=(ctx,clientY)=>{
-    const others=[...container.querySelectorAll(itemSelector)].filter(x=>x!==ctx.item&&x.dataset.reordering!=='1');
-    let before=null;
-    for(const x of others){const r=x.getBoundingClientRect();if(clientY<r.top+r.height/2){before=x;break;}}
-    if(before)container.insertBefore(ctx.placeholder,before);else container.appendChild(ctx.placeholder);
-  };
-  const autoScroll=(ctx,clientY)=>{
-    const edge=88,maxSpeed=15,h=window.innerHeight;
-    let speed=0;if(clientY<edge)speed=-maxSpeed*(1-clientY/edge);else if(clientY>h-edge)speed=maxSpeed*(1-(h-clientY)/edge);
-    if(!speed){if(ctx.scrollRaf)cancelAnimationFrame(ctx.scrollRaf);ctx.scrollRaf=null;return;}
-    if(ctx.scrollRaf)return;
-    const step=()=>{window.scrollBy(0,speed);placeAt(ctx,ctx.lastY);ctx.scrollRaf=requestAnimationFrame(step);};
-    ctx.scrollRaf=requestAnimationFrame(step);
-  };
-  const move=(ctx,x,y)=>{
-    ctx.lastY=y;
-    ctx.ghost.style.left=`${x-ctx.offsetX}px`;
-    ctx.ghost.style.top=`${y-ctx.offsetY}px`;
-    placeAt(ctx,y);autoScroll(ctx,y);
-  };
-  const finish=ctx=>{
-    if(!ctx)return;
-    if(ctx.scrollRaf)cancelAnimationFrame(ctx.scrollRaf);
-    ctx.placeholder.parentNode?.insertBefore(ctx.item,ctx.placeholder);
-    ctx.placeholder.remove();ctx.ghost.remove();
-    ctx.item.classList.remove('reorder-source','dragging');delete ctx.item.dataset.reordering;
-    document.body.classList.remove('is-reordering');
-    const ids=[...container.querySelectorAll(itemSelector)].map(x=>x.dataset.reorderId).filter(Boolean);
-    onOrder(ids);
-  };
-  handles.forEach(handle=>{
-    handle.addEventListener('touchstart',ev=>{if(!ev.touches?.length)return;const t=ev.touches[0],item=handle.closest(itemSelector);if(!item)return;ev.preventDefault();const ctx=begin(item,t.clientX,t.clientY);if(!ctx)return;
-      const onMove=e=>{if(!e.touches?.length)return;e.preventDefault();const q=e.touches[0];move(ctx,q.clientX,q.clientY);};
-      const onEnd=e=>{e.preventDefault();document.removeEventListener('touchmove',onMove);document.removeEventListener('touchend',onEnd);document.removeEventListener('touchcancel',onEnd);finish(ctx);};
-      document.addEventListener('touchmove',onMove,{passive:false});document.addEventListener('touchend',onEnd,{passive:false});document.addEventListener('touchcancel',onEnd,{passive:false});
-    },{passive:false});
-    handle.addEventListener('pointerdown',ev=>{if(ev.pointerType==='touch')return;const item=handle.closest(itemSelector);if(!item)return;ev.preventDefault();const pid=ev.pointerId,ctx=begin(item,ev.clientX,ev.clientY);if(!ctx)return;
-      const onMove=e=>{if(e.pointerId!==pid)return;e.preventDefault();move(ctx,e.clientX,e.clientY);};
-      const onEnd=e=>{if(e.pointerId!==pid)return;document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onEnd);document.removeEventListener('pointercancel',onEnd);finish(ctx);};
-      document.addEventListener('pointermove',onMove,{passive:false});document.addEventListener('pointerup',onEnd);document.addEventListener('pointercancel',onEnd);
+  const getOrder=()=>[...container.querySelectorAll(itemSelector)].map(x=>x.dataset.reorderId).filter(Boolean);
+  for(const handle of container.querySelectorAll(handleSelector)){
+    handle.setAttribute('aria-label','Hold og dra for å flytte øvelsen. Piltaster kan også brukes.');
+    handle.setAttribute('title','Dra eller bruk piltastene');
+    handle.addEventListener('keydown',e=>{
+      if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+      const item=handle.closest(itemSelector);if(!item)return;
+      const items=[...container.querySelectorAll(itemSelector)],i=items.indexOf(item),step=e.key==='ArrowUp'?-1:1;
+      if(i+step<0||i+step>=items.length)return;
+      e.preventDefault();
+      if(step<0)container.insertBefore(item,items[i-1]);else container.insertBefore(items[i+1],item);
+      onOrder(getOrder());
     });
-  });
+    handle.addEventListener('pointerdown',e=>{
+      if(e.button!=null&&e.button!==0)return;
+      const item=handle.closest(itemSelector);if(!item)return;
+      e.preventDefault();
+      const bounds=item.getBoundingClientRect(),oldIds=getOrder();
+      const placeholder=document.createElement('div');placeholder.className='reorder-placeholder';
+      placeholder.style.height=`${Math.max(54,bounds.height)}px`;
+      container.insertBefore(placeholder,item);
+      const ghost=document.createElement('div');
+      ghost.className='reorder-ghost drag-preview';
+      ghost.textContent=item.querySelector('h3,strong')?.textContent?.trim()||'Flytt øvelse';
+      Object.assign(ghost.style,{position:'fixed',left:`${bounds.left}px`,top:`${bounds.top}px`,width:`${bounds.width}px`,height:'54px',zIndex:'9999',pointerEvents:'none'});
+      document.body.appendChild(ghost);
+      item.classList.add('reorder-source');
+      document.body.classList.add('is-reordering');
+      let pointerY=e.clientY,pointerX=e.clientX,frame=0,active=true;
+      const placeAt=()=>{
+        const others=[...container.querySelectorAll(itemSelector)].filter(x=>x!==item);
+        let before=null;
+        for(const other of others){const r=other.getBoundingClientRect();if(pointerY<r.top+r.height/2){before=other;break;}}
+        if(before)container.insertBefore(placeholder,before);else container.appendChild(placeholder);
+      };
+      const tick=()=>{
+        frame=0;if(!active)return;
+        ghost.style.setProperty('transform',`translate3d(0,${pointerY-e.clientY}px,0)`,'important');
+        placeAt();
+        const edge=76,h=window.innerHeight;
+        let speed=0;if(pointerY<edge)speed=-Math.min(14,(edge-pointerY)*.18);
+        else if(pointerY>h-edge)speed=Math.min(14,(pointerY-(h-edge))*.18);
+        if(speed){window.scrollBy(0,speed);frame=requestAnimationFrame(tick);}
+      };
+      const onMove=ev=>{
+        if(ev.pointerId!==e.pointerId)return;
+        ev.preventDefault();
+        pointerY=ev.clientY;pointerX=ev.clientX;
+        if(!frame)frame=requestAnimationFrame(tick);
+      };
+      const cleanup=(ev,cancel=false)=>{
+        if(ev.pointerId!==e.pointerId)return;
+        active=false;if(frame)cancelAnimationFrame(frame);
+        window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onEnd);window.removeEventListener('pointercancel',onCancel);
+        if(!cancel)container.insertBefore(item,placeholder);
+        placeholder.remove();ghost.remove();item.classList.remove('reorder-source');document.body.classList.remove('is-reordering');
+        onOrder(cancel?oldIds:getOrder());
+      };
+      const onEnd=ev=>cleanup(ev,false),onCancel=ev=>cleanup(ev,true);
+      window.addEventListener('pointermove',onMove,{passive:false});
+      window.addEventListener('pointerup',onEnd);window.addEventListener('pointercancel',onCancel);
+      if(!frame)frame=requestAnimationFrame(tick);
+    });
+  }
 }
 function bankMatches(e,term,muscle,equipment){const q=normalizedName(term||''),hay=normalizedName([e.name,...(e.alternatives||[]),e.notes||''].join(' '));return(!q||hay.includes(q))&&(!muscle||e.muscleGroup===muscle)&&(!equipment||e.equipment===equipment);}
 function openBankPicker(onPick,opts={}){
@@ -723,8 +723,8 @@ async function renderSettings(){
   !user?`<div class="card"><span class="eyebrow">Skylagring</span><h2>Logg inn</h2><p class="muted small">Skyoppsettet er nå innebygd i appen. Håvard og Stine logger bare inn med hver sin Supabase-bruker.</p><div class="stack"><label>E-post<input id="cloudEmail" type="email" autocomplete="email"></label><label>Passord<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6"></label><div class="grid2"><button class="ghost" id="cloudRegister">Opprett bruker</button><button class="primary" id="cloudLogin">Logg inn</button></div><button class="ghost" id="forgotPassword" type="button">Glemt passord</button></div></div>`:
   !cloudMeta.householdId?`<div class="card"><span class="eyebrow">Innlogget</span><h2>${esc(user.email||'Supabase-bruker')}</h2><p class="muted small">På Håvard sin telefon: opprett den delte treningskontoen. På Stine sin telefon: skriv inn delingskoden Håvard får.</p><div class="stack"><button class="primary" id="createHousehold">Opprett delt treningskonto</button><div class="divider">eller</div><label>Delingskode<input id="joinCode" autocomplete="off" autocapitalize="characters" placeholder="F.eks. A1B2C3D4E5F6"></label><button class="ghost" id="joinHousehold">Koble til eksisterende konto</button><button class="text-danger" id="cloudLogout">Logg ut</button></div></div>`:
   `<div class="card"><span class="eyebrow">Skysynk aktiv</span><h2>${esc(user.email||'Innlogget')}</h2><div class="cloud-ok">✓ Håvard og Stine kan synkronisere samme data</div><p class="muted small">Delingskode: <strong class="code">${esc(cloudMeta.inviteCode||'—')}</strong></p><label>Denne telefonen brukes primært av<select id="deviceProfile">${state.profiles.map(p=>`<option value="${p.id}" ${cloudMeta.deviceProfileId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="stack" style="margin-top:10px"><button class="primary" id="syncNow">Synkroniser nå</button><div id="cloudStatus" class="muted small"></div><button class="text-danger" id="cloudLogout">Logg ut av skyen</button></div></div>`;
-  el.innerHTML=`${cloudCard}<div class="card"><h2>Backup og data</h2><p class="muted small"><strong>Behold fortsatt lokale backups.</strong> Skylagring synkroniserer program og fullførte økter mellom telefonene, mens en JSON-backup er ekstra sikkerhet.</p><div class="stack"><button class="primary" id="exportBtn">Eksporter full backup</button><label class="file-label">Importer backup<input type="file" id="importFile" accept="application/json,.json"></label></div></div><div class="card"><h3>Profiler</h3><p class="muted small">Begge profiler og all fullført historikk deles når skysynk er aktiv. Pågående økt lagres lokalt på telefonen til den fullføres.</p>${state.profiles.map(p=>`<label>Profilnavn<input data-profile-name="${p.id}" value="${esc(p.name)}"></label><label>Rapport-e-post for ${esc(p.name)}<input type="email" data-report-email="${p.id}" value="${esc(p.reportEmail||'')}" placeholder="navn@epost.no"></label>`).join('')}</div><div class="card"><h3>Startside</h3><label class="toggle-row"><input type="checkbox" id="showSplashSetting" ${shouldShowSplash()?'checked':''}><span><strong>Vis startside ved oppstart</strong><small>Innstillingen gjelder denne telefonen.</small></span></label><button class="ghost" id="previewSplash" style="margin-top:10px">Vis startsiden nå</button></div><div class="card"><h3>App</h3><p class="muted small">Treningslogg v${APP_VERSION} · Håvard & Stine · søkbar øvelsesbank · forbedret drag-and-drop · alternative øvelser · komma-desimaler · KV/+kg/assistanse · innebygd skyoppsett · programeditor på mobil · valgfrie øvelser · kommentarer · historikkredigering · månedsrapport · Supabase-skysynk.</p></div>`;
-  el.querySelector('#exportBtn').onclick=exportData;el.querySelector('#importFile').onchange=importData;el.querySelectorAll('[data-profile-name]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.profileName);if(p&&x.value.trim()){p.name=x.value.trim();saveState();renderAll();}});el.querySelectorAll('[data-report-email]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.reportEmail);if(p){p.reportEmail=x.value.trim();saveState();}});const ss=el.querySelector('#showSplashSetting');if(ss)ss.onchange=()=>setSplashPreference(ss.checked);const ps=el.querySelector('#previewSplash');if(ps)ps.onclick=()=>{const sp=document.querySelector('#splashScreen');sp.classList.remove('hidden');sp.setAttribute('aria-hidden','false');};
+  el.innerHTML=`${cloudCard}<div class="card"><h2>Backup og data</h2><p class="muted small"><strong>Behold fortsatt lokale backups.</strong> Skylagring synkroniserer program og fullførte økter mellom telefonene, mens en JSON-backup er ekstra sikkerhet.</p><div class="stack"><button class="primary" id="exportBtn">Eksporter full backup</button><label class="file-label">Importer backup<input type="file" id="importFile" accept="application/json,.json"></label></div></div><div class="card"><h3>Profiler</h3><p class="muted small">Begge profiler og all fullført historikk deles når skysynk er aktiv. Pågående økt lagres lokalt på telefonen til den fullføres.</p>${state.profiles.map(p=>`<label>Profilnavn<input data-profile-name="${p.id}" value="${esc(p.name)}"></label><label>Rapport-e-post for ${esc(p.name)}<input type="email" data-report-email="${p.id}" value="${esc(p.reportEmail||'')}" placeholder="navn@epost.no"></label>`).join('')}</div><div class="card"><h3>Utseende</h3><p class="muted small">Fargetemaet lagres på denne telefonen.</p><label>Fargetema<select id="themeSelect"><option value="forest" ${activeTheme()==='forest'?'selected':''}>Rolig premium · mørk grønn</option><option value="midnight" ${activeTheme()==='midnight'?'selected':''}>Midnatt · mørk blå</option><option value="copper" ${activeTheme()==='copper'?'selected':''}>Kobber · varm mørk</option><option value="plum" ${activeTheme()==='plum'?'selected':''}>Plomme · mørk lilla</option><option value="light" ${activeTheme()==='light'?'selected':''}>Lys</option></select></label></div><div class="card"><h3>Startside</h3><label class="toggle-row"><input type="checkbox" id="showSplashSetting" ${shouldShowSplash()?'checked':''}><span><strong>Vis startside ved oppstart</strong><small>Innstillingen gjelder denne telefonen.</small></span></label><button class="ghost" id="previewSplash" style="margin-top:10px">Vis startsiden nå</button></div><div class="card"><h3>App</h3><p class="muted small">Treningslogg v${APP_VERSION} · Håvard & Stine · søkbar øvelsesbank · forbedret drag-and-drop · alternative øvelser · komma-desimaler · KV/+kg/assistanse · innebygd skyoppsett · programeditor på mobil · valgfrie øvelser · kommentarer · historikkredigering · månedsrapport · Supabase-skysynk.</p></div>`;
+  el.querySelector('#exportBtn').onclick=exportData;el.querySelector('#importFile').onchange=importData;el.querySelectorAll('[data-profile-name]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.profileName);if(p&&x.value.trim()){p.name=x.value.trim();saveState();renderAll();}});el.querySelectorAll('[data-report-email]').forEach(x=>x.onchange=()=>{const p=state.profiles.find(p=>p.id===x.dataset.reportEmail);if(p){p.reportEmail=x.value.trim();saveState();}});const themeSelect=el.querySelector('#themeSelect');if(themeSelect)themeSelect.onchange=()=>applyTheme(themeSelect.value);const ss=el.querySelector('#showSplashSetting');if(ss)ss.onchange=()=>setSplashPreference(ss.checked);const ps=el.querySelector('#previewSplash');if(ps)ps.onclick=()=>{const sp=document.querySelector('#splashScreen');sp.classList.remove('hidden');sp.setAttribute('aria-hidden','false');};
   const saveCfg=el.querySelector('#saveCloudConfig');if(saveCfg)saveCfg.onclick=()=>{const url=el.querySelector('#cloudUrl').value.trim().replace(/\/$/,'');const key=el.querySelector('#cloudKey').value.trim();if(!/^https:\/\/.+\.supabase\.co$/i.test(url)||!key)return toast('Kontroller URL og nøkkel');saveCloudConfig({url,key});location.reload();};
   const clearCfg=el.querySelector('#clearCloudConfig');if(clearCfg)clearCfg.onclick=()=>{if(confirm('Fjerne Supabase-oppsettet fra denne telefonen? Lokale treningsdata beholdes.')){localStorage.removeItem(CLOUD_CONFIG_KEY);cloudMeta={deviceProfileId:cloudMeta.deviceProfileId};saveCloudMeta();location.reload();}};
   const reg=el.querySelector('#cloudRegister');if(reg)reg.onclick=async()=>{try{const email=el.querySelector('#cloudEmail').value.trim(),pw=el.querySelector('#cloudPassword').value;if(!email||pw.length<6)return toast('E-post og minst 6 tegn i passord');const d=await cloudSignUp(email,pw);if(d.session){cloudReady=true;await resolveCloudHousehold();renderAll();toast('Bruker opprettet');}else toast('Bruker opprettet – bekreft e-posten først');}catch(e){alert(e.message||'Kunne ikke opprette bruker');}};
@@ -740,5 +740,5 @@ function renderAll(){renderProfileBar();renderPrograms();renderWorkout();renderH
 function installHelp(){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Installer på iPhone</h3><ol class="install-steps"><li>Åpne siden i <strong>Safari</strong>.</li><li>Trykk <strong>Del</strong>.</li><li>Velg <strong>Legg til på Hjem-skjerm</strong>.</li><li>Trykk <strong>Legg til</strong>.</li></ol><p class="muted small">Ved oppdatering på samme nettadresse beholdes localStorage-data. Ta likevel backup først.</p><button value="cancel" class="primary" style="width:100%">Lukk</button>`;m.showModal();}
 
 function initSplash(){const sp=document.querySelector('#splashScreen');if(!sp)return;const toggle=sp.querySelector('#splashToggle');if(toggle){toggle.checked=shouldShowSplash();toggle.onchange=()=>setSplashPreference(toggle.checked);}const start=sp.querySelector('#splashStart');if(start)start.onclick=()=>hideSplash(true);const open=sp.querySelector('#splashOpen');if(open)open.onclick=()=>hideSplash(false);if(!shouldShowSplash())sp.classList.add('hidden');}
-initSplash();
+applyTheme();initSplash();
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.6.2').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
