@@ -582,7 +582,58 @@ function renderWorkout(){
 function updateWorkoutSummary(){const el=document.querySelector('#workoutVolume');if(el&&state.active)el.textContent=`${Math.round(volume(state.active)).toLocaleString('nb-NO')} kg`;}
 function openAddExercise(){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Engangsøvelse</h3><p class="muted small">Legges bare til i dagens økt og endrer ikke programmalen.</p><div class="stack"><label>Navn<input id="xName" placeholder="F.eks. Face pull"></label><div class="grid2"><label>Sett<input id="xSets" type="number" min="1" value="3"></label><label>Reps<input id="xReps" value="8–12"></label></div><div class="grid2"><label>Tempo<input id="xTempo"></label><label>Pause (sek)<input id="xRest" type="number" min="0" value="120"></label></div><label>RIR / notat<input id="xNotes" value="RIR 1–2"></label><div class="grid2"><button value="cancel" class="ghost">Avbryt</button><button type="button" class="primary" id="saveExtra">Legg til</button></div></div>`;m.showModal();b.querySelector('#saveExtra').onclick=()=>{const name=b.querySelector('#xName').value.trim();if(!name)return toast('Skriv navn på øvelsen');const n=Math.max(1,+b.querySelector('#xSets').value||3);state.active.exercises.push({id:uid(),name,originalName:name,targetReps:b.querySelector('#xReps').value.trim(),tempo:b.querySelector('#xTempo').value.trim(),restSeconds:Math.max(0,+b.querySelector('#xRest').value||0),notes:b.querySelector('#xNotes').value.trim(),comment:'',alternatives:[],sets:Array.from({length:n},()=>({id:uid(),weight:'',reps:'',rir:'',completed:false}))});saveState();m.close();renderWorkout();};}
 
-function renderHistory(){const el=document.querySelector('#history'),sessions=profile().sessions;if(!sessions.length){el.innerHTML=`<div class="card empty"><h2>Ingen historikk for ${esc(profile().name)}</h2><p>Fullfør en økt, så vises den her.</p></div>`;return;}el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(profile().name)}</span><h2>Historikk</h2><p class="muted small">${sessions.length} lagrede økter</p></div></div>${sessions.map((sess,si)=>`<div class="card"><div class="row wrap"><div><h3>${esc(sess.name)}</h3><div class="muted small">${fmtDate(sess.finishedAt||sess.startedAt)}</div></div><div class="right"><div class="muted small">Ekstern kg-volum</div><strong>${Math.round(volume(sess)).toLocaleString('nb-NO')} kg</strong></div></div>${(sess.exercises||[]).map(e=>`<div class="exercise"><div class="exercise-title">${esc(e.name)}</div>${(e.sets||[]).filter(x=>x.completed||x.reps).map((st,i)=>`<div class="history-set">Sett ${i+1}: ${esc(loadLabel(st,e))} × ${st.reps||0}${st.rir!==''&&st.rir!=null?` · RIR ${st.rir}`:''}</div>`).join('')}${e.comment?`<div class="history-comment">${esc(e.comment)}</div>`:''}</div>`).join('')}${sess.notes?`<p class="muted small note-box">${esc(sess.notes)}</p>`:''}<div class="history-actions"><button class="ghost compact" data-edit-session="${si}">Rediger økt</button><button class="text-danger" data-del-session="${si}">Slett økt</button></div></div>`).join('')}`;el.querySelectorAll('[data-edit-session]').forEach(b=>b.onclick=()=>openSessionEditor(+b.dataset.editSession));el.querySelectorAll('[data-del-session]').forEach(b=>b.onclick=()=>{if(confirm('Slette denne økten permanent?')){sessions.splice(+b.dataset.delSession,1);saveState();renderHistory();renderProgress();}});}
+function exercisePR(sess,e){
+  const date=Date.parse(sess.finishedAt||sess.startedAt||'');
+  const previous=profileSessions().filter(x=>x!==sess&&Date.parse(x.finishedAt||x.startedAt||'')<date)
+    .flatMap(x=>(x.exercises||[]).filter(y=>normalizedName(y.name)===normalizedName(e.name)));
+  if(!previous.length)return false;
+  const score=x=>Math.max(0,...(x.sets||[]).filter(st=>st.completed||num(st.reps)>0).map(st=>
+    isBodyweightExercise(x)?(loadRank(st,x)+1000)*101+num(st.reps):oneRM(num(st.weight),num(st.reps))));
+  const best=Math.max(0,...previous.map(score));
+  return score(e)>best;
+}
+function exerciseReactionsMarkup(sess,e,si,ei){
+  const owner=state.currentProfileId,reactor=cloudMeta.deviceProfileId,
+    reactions=e.reactions&&typeof e.reactions==='object'?e.reactions:{};
+  const labels=Object.entries(reactions).filter(([pid,emoji])=>state.profiles.some(p=>p.id===pid)&&['❤️','🔥','💪','👏','😍','🏆'].includes(emoji))
+    .map(([pid,emoji])=>`<span class="reaction-label">${esc(state.profiles.find(p=>p.id===pid)?.name||pid)} ${emoji}</span>`).join('');
+  if(!reactor||!state.profiles.some(p=>p.id===reactor))
+    return `<div class="reaction-area">${labels||''}<p class="muted small">Velg «Denne telefonen brukes primært av» under Data for å reagere.</p></div>`;
+  if(reactor===owner)return `<div class="reaction-area">${labels||'<span class="muted small">Ingen reaksjoner ennå</span>'}</div>`;
+  return `<div class="reaction-area">${labels}<div class="reaction-buttons" aria-label="Reager på ${esc(e.name)}">
+    ${['❤️','🔥','💪','👏','😍','🏆'].map(emoji=>`<button type="button" class="reaction-btn ${reactions[reactor]===emoji?'selected':''}" data-react-session="${si}" data-react-ex="${ei}" data-react-emoji="${emoji}" aria-label="Reager med ${emoji}" aria-pressed="${reactions[reactor]===emoji}">${emoji}</button>`).join('')}
+    </div></div>`;
+}
+function setExerciseReaction(si,ei,emoji){
+  const actor=cloudMeta.deviceProfileId,target=state.currentProfileId;
+  if(!actor||actor===target)return toast('Velg din egen telefonprofil under Data');
+  const sess=profileSessions(target)[si],ex=sess?.exercises?.[ei];
+  if(!ex)return;
+  if(!['❤️','🔥','💪','👏','😍','🏆'].includes(emoji))return;
+  if(!ex.reactions||typeof ex.reactions!=='object')ex.reactions={};
+  if(ex.reactions[actor]===emoji)delete ex.reactions[actor];else ex.reactions[actor]=emoji;
+  saveState();renderHistory();
+}
+function renderHistory(){
+  const el=document.querySelector('#history'),sessions=profile().sessions;
+  if(!sessions.length){el.innerHTML=`<div class="card empty"><h2>Ingen historikk for ${esc(profile().name)}</h2><p>Fullfør en økt, så vises den her.</p></div>`;return;}
+  el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(profile().name)}</span><h2>Historikk</h2><p class="muted small">${sessions.length} lagrede økter · Velg profil øverst for å se hverandres resultater.</p></div></div>
+  ${sessions.map((sess,si)=>`<div class="card"><div class="row wrap"><div><h3>${esc(sess.name)}</h3><div class="muted small">${fmtDate(sess.finishedAt||sess.startedAt)}</div></div>
+    <div class="right"><div class="muted small">Ekstern kg-volum</div><strong>${Math.round(volume(sess)).toLocaleString('nb-NO')} kg</strong></div></div>
+    ${(sess.exercises||[]).map((e,ei)=>`<div class="exercise"><div class="exercise-title">${esc(e.name)}${exercisePR(sess,e)?' <span class="tag">🏆 Ny PR</span>':''}</div>
+    ${(e.sets||[]).filter(x=>x.completed||x.reps).map((st,i)=>`<div class="history-set">Sett ${i+1}: ${esc(loadLabel(st,e))} × ${st.reps||0}${st.rir!==''&&st.rir!=null?` · RIR ${st.rir}`:''}</div>`).join('')}
+    ${e.comment?`<div class="history-comment">${esc(e.comment)}</div>`:''}
+    ${exerciseReactionsMarkup(sess,e,si,ei)}</div>`).join('')}
+    ${sess.notes?`<p class="muted small note-box">${esc(sess.notes)}</p>`:''}
+    <div class="history-actions"><button class="ghost compact" data-edit-session="${si}">Rediger økt</button><button class="text-danger" data-del-session="${si}">Slett økt</button></div></div>`).join('')}`;
+  el.querySelectorAll('[data-react-session]').forEach(b=>b.onclick=()=>setExerciseReaction(+b.dataset.reactSession,+b.dataset.reactEx,b.dataset.reactEmoji));
+  el.querySelectorAll('[data-edit-session]').forEach(b=>b.onclick=()=>openSessionEditor(+b.dataset.editSession));
+  el.querySelectorAll('[data-del-session]').forEach(b=>b.onclick=()=>{
+    if(confirm('Slette denne økten permanent?')){
+      sessions.splice(+b.dataset.delSession,1);saveState();renderHistory();renderWeek();renderProgress();
+    }
+  });
+}
 function openSessionEditor(index){
   const profileId=state.currentProfileId,initialProfile=state.profiles.find(p=>p.id===profileId),original=initialProfile?.sessions?.[index];if(!original)return;const sessionId=original.id||null,sessionStartedAt=original.startedAt||null,sessionFinishedAt=original.finishedAt||null;let draft=clone(original),m=document.querySelector('#modal'),b=document.querySelector('#modalBody');normalizeBodyweightData({profiles:[{programs:[],sessions:[draft]}]});
   function draw(){b.innerHTML=`<h3>Rediger gjennomført økt</h3><p class="muted small">Endringene erstatter den eksisterende økten og synkroniseres til den andre telefonen.</p><div class="stack"><label>Øktnavn<input id="seName" value="${esc(draft.name||'')}"></label><label>Dato og tid<input id="seDate" type="datetime-local" value="${localDateTimeValue(draft.finishedAt||draft.startedAt)}"></label><div id="seExercises">${(draft.exercises||[]).map((e,ei)=>{const bw=isBodyweightExercise(e);return`<div class="editor-row"><div class="row"><strong>${ei+1}. ${esc(e.name)}</strong><button type="button" class="text-danger" data-se-rm-ex="${ei}">Fjern øvelse</button></div><label>Øvelse<input data-se-ex-name="${ei}" value="${esc(e.name)}"></label><label class="toggle-row"><input type="checkbox" data-se-bw="${ei}" ${bw?'checked':''}><span><strong>Kroppsvektøvelse</strong><small>Bruk KV, +kg eller −kg/assistanse.</small></span></label>${(e.sets||[]).map((st,si)=>bw?`<div class="edit-set-row bw"><span>Sett ${si+1}</span><select data-se-load="${ei}:${si}"><option value="bw" ${inferredLoadType(st,e)==='bw'?'selected':''}>KV</option><option value="bw_plus" ${inferredLoadType(st,e)==='bw_plus'?'selected':''}>+kg</option><option value="bw_assist" ${inferredLoadType(st,e)==='bw_assist'?'selected':''}>−kg</option></select><input inputmode="decimal" data-se-set="${ei}:${si}:weight" value="${inferredLoadType(st,e)==='bw'?'':esc(st.weight??'')}" placeholder="kg" ${inferredLoadType(st,e)==='bw'?'disabled':''}><input inputmode="numeric" data-se-set="${ei}:${si}:reps" value="${esc(st.reps??'')}" placeholder="reps"><input inputmode="decimal" data-se-set="${ei}:${si}:rir" value="${esc(st.rir??'')}" placeholder="RIR"><button type="button" class="text-danger" data-se-rm-set="${ei}:${si}">×</button></div>`:`<div class="edit-set-row"><span>Sett ${si+1}</span><input inputmode="decimal" data-se-set="${ei}:${si}:weight" value="${esc(st.weight??'')}" placeholder="kg"><input inputmode="numeric" data-se-set="${ei}:${si}:reps" value="${esc(st.reps??'')}" placeholder="reps"><input inputmode="decimal" data-se-set="${ei}:${si}:rir" value="${esc(st.rir??'')}" placeholder="RIR"><button type="button" class="text-danger" data-se-rm-set="${ei}:${si}">×</button></div>`).join('')}<button type="button" class="ghost compact" data-se-add-set="${ei}">+ Sett</button><label>Kommentar<textarea data-se-comment="${ei}">${esc(e.comment||'')}</textarea></label></div>`}).join('')}</div><button type="button" class="ghost" id="seAddExercise">+ Legg til øvelse</button><label>Øktnotat<textarea id="seNotes">${esc(draft.notes||'')}</textarea></label><div class="grid2"><button value="cancel" class="ghost">Avbryt</button><button type="button" class="primary" id="seSave">Lagre endringer</button></div></div>`;
