@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.2';
+const APP_VERSION='2.7.3';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -789,8 +789,8 @@ function exerciseReactionsMarkup(sess,e,si,ei){
   const chosen=reactions[reactor]||'';
   return `<div class="reaction-area">
     ${labels}
-    <button type="button" class="reaction-toggle" data-react-toggle="${si}:${ei}" aria-label="Reager på ${esc(e.name)}" aria-haspopup="true" aria-expanded="false" title="Reager på øvelsen">
-      <span aria-hidden="true">😊</span>
+    <button type="button" class="reaction-toggle" data-react-toggle="${si}:${ei}" aria-label="Velg reaksjon på ${esc(e.name)}" aria-haspopup="true" aria-expanded="false" title="Velg reaksjon">
+      <span aria-hidden="true">•••</span>
     </button>
     <div class="reaction-picker" hidden aria-label="Velg reaksjon for ${esc(e.name)}">
       ${['❤️','🔥','💪','👏','😍','🏆'].map(emoji=>`<button type="button" class="reaction-btn ${chosen===emoji?'selected':''}" data-react-session="${si}" data-react-ex="${ei}" data-react-emoji="${emoji}" aria-label="${chosen===emoji?`Fjern ${emoji}-reaksjon`:`Reager med ${emoji}`}" aria-pressed="${chosen===emoji}">${emoji}</button>`).join('')}
@@ -950,4 +950,4 @@ document.addEventListener('click',e=>{
     p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
   });
 });
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.2').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.3').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
