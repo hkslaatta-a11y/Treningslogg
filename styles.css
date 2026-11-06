@@ -102,3 +102,9 @@ body.is-reordering{touch-action:none!important;user-select:none;-webkit-user-sel
 :root[data-theme="light"] .primary{color:#fff!important}
 :root[data-theme="light"] .card{box-shadow:0 5px 20px #253e2912}
 @media(max-width:360px){.setup-item .actions .compact{padding:0 9px;min-width:38px}}
+
+/* Rask drahåndtering: kompakt GPU-flyttet forhåndsvisning */
+.drag-preview{display:flex;align-items:center;padding:0 16px;font-size:15px;font-weight:750;white-space:nowrap;text-overflow:ellipsis;background:var(--card2);color:var(--text);border:1px solid var(--accent-strong);border-radius:14px;overflow:hidden;box-shadow:0 16px 32px #0008;will-change:transform}
+.reorder-source{display:none!important}
+.drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}
+@media(max-width:520px){.drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}}
