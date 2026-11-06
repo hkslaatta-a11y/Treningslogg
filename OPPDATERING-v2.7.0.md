@@ -32,3 +32,11 @@ Utgangspunkt: eksisterende 2.6.2 på main. `STORAGE_KEY`, Supabase-konfigurasjon
 - Test-Netlify-hosting ble lastet opp før siste synkfikser; bruk oppdatert branch før ny test. Ikke logg inn i test-Netlify med ekte delte data.
 - Ikke rediger den samme økten samtidig fra to telefoner.
 - Uke- og bonusfunksjonene kan ikke rekonstruere utelatte øvelser fra historikk registrert *før* denne versjonen, fordi tidligere versjoner ikke lagret hvilke øvelser som ble valgt bort.
+
+## Verifisert Supabase-migrering (6. november 2026)
+- Brukeren kjørte `supabase-migration-v2.7.0-cas.sql` i Supabase SQL Editor med resultat «Success».
+- Direkte skrivebeskyttende inspeksjon mot riktig Supabase-prosjekt bekreftet: `revision`-kolonne, aktiv revisjons-trigger, `get_my_training_household_checked` og `save_training_state_checked`.
+- Sjekket at siste RPC sammenligner `revision = p_expected_revision` og kontrollerer husholdningsmedlemskap. De nye funksjonene har EXECUTE for `authenticated`, ikke `anon`.
+- Kollisjonstest i isolert simulering: 7/7 bestått, inkludert overlappende lagringer av økter og reaksjoner. Ingen reelle økter ble endret.
+- Test-App-markering `Sikker synk RC2` under Data; den tidligere Netlify-kopien er foreldet og må lastes opp på nytt.
+- **Før merge:** gjennomfør faktisk to-enhets test med separate testkontoer/husholdning og oppdater begge ekte telefoner samtidig for å unngå at eldre 2.6.2-klienter bruker legacy skriving.
