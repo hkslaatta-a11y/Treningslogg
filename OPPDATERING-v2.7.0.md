@@ -40,3 +40,6 @@ Utgangspunkt: eksisterende 2.6.2 på main. `STORAGE_KEY`, Supabase-konfigurasjon
 - Kollisjonstest i isolert simulering: 7/7 bestått, inkludert overlappende lagringer av økter og reaksjoner. Ingen reelle økter ble endret.
 - Test-App-markering `Sikker synk RC2` under Data; den tidligere Netlify-kopien er foreldet og må lastes opp på nytt.
 - **Før merge:** gjennomfør faktisk to-enhets test med separate testkontoer/husholdning og oppdater begge ekte telefoner samtidig for å unngå at eldre 2.6.2-klienter bruker legacy skriving.
+
+- **Direkte test mot Supabase 2026-11-06:** En innlogget husholdningsbruker kunne lese data med gyldig revisjon via `get_my_training_household_checked`. En isolert SQL-transaksjon bekreftet at `save_training_state_checked` godkjenner første oppdatering, avviser gammel revisjon uten å overskrive data og godkjenner korrekt sammenslått forsøk. SQL-testens midlertidige endringer ble `ROLLBACK`-et; ingen ekte treningsøkter ble endret.
+- Gjenstår fortsatt praktisk nettlesertest mot Supabase med to aktive klienter og isolert testhusholdning før sammenslåing av PR.
