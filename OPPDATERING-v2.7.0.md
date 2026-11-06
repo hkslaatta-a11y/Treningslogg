@@ -27,5 +27,8 @@ Utgangspunkt: eksisterende 2.6.2 på main. `STORAGE_KEY`, Supabase-konfigurasjon
 
 ## Vær oppmerksom på
 - Ingen faktisk Safari-/iPhone-test er utført i utviklingsmiljøet. JavaScript-syntaks og isolerte forretningslogikktester er kontrollert.
-- Eksisterende synkronisering lagrer hele husholdningsdata i ett objekt. Samtidige endringer fra to telefoner kan fortsatt gi konflikt (siste skyversjon vinner). Ikke rediger samme økt samtidig.
+- **Synkroniseringskontroll 2026-11-06:** Testet faktiske JavaScript-funksjoner med to simulerte telefoner og isolert minnebasert Supabase-RPC (ingen ekte treningsdata berørt). Profilspesifikk historikk, overføring av emoji, ny økt og beholdning av eldre økter bestått. Den opprinnelige synkroniseringen mistet en endring ved to usynkroniserte lagringer. Det er derfor lagt inn en treveis sammenslåing av data ved opplasting og vern mot å overskrive lokale endringer under overføring. Nye tester bekreftet at separate økter og reaksjoner kan kombineres ved **fortløpende** lagring selv om enhetene startet med gamle kopier.
+- **Rest-risiko:** Dagens `save_training_state`-RPC skriver hele husholdningsdokumentet uten atomisk revisjonskontroll. Dersom begge enheter leser samme skyversjon og skriver **helt samtidig**, kan én skrive over den andre. Dette kan ikke elimineres sikkert i klienten alene; krever egen Supabase-migrering med versjonskontroll. Ikke publiser som fullt synk-sikker før dette er håndtert og testet mot faktisk Supabase.
+- Test-Netlify-hosting ble lastet opp før siste synkfikser; bruk oppdatert branch før ny test. Ikke logg inn i test-Netlify med ekte delte data.
+- Ikke rediger den samme økten samtidig fra to telefoner.
 - Uke- og bonusfunksjonene kan ikke rekonstruere utelatte øvelser fra historikk registrert *før* denne versjonen, fordi tidligere versjoner ikke lagret hvilke øvelser som ble valgt bort.
