@@ -51,3 +51,60 @@ body.is-reordering{overscroll-behavior:none}
 .reorder-placeholder{border:2px dashed var(--accent);border-radius:16px;background:rgba(255,255,255,.035);box-sizing:border-box;min-height:54px}
 .reorder-ghost{opacity:.96!important;transform:scale(1.015)!important;box-shadow:0 22px 50px rgba(0,0,0,.58)!important;border-color:var(--accent)!important;overflow:hidden;will-change:left,top}
 body.is-reordering{touch-action:none!important;user-select:none;-webkit-user-select:none}
+
+/* v2.7.0 – øktplanlegging, ukeoversikt, reaksjoner og tema */
+.tabs{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media(max-width:480px){.tabs{gap:3px}.tab{font-size:11px;padding:10px 1px}}
+.setup-list{display:grid;gap:10px;margin:14px 0 18px}
+.setup-item{border:1px solid var(--line);background:var(--card);padding:12px;border-radius:14px;display:grid;gap:10px}
+.setup-item.setup-off{opacity:.7}
+.setup-check{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.setup-check input{flex:0 0 22px;width:22px;height:22px;min-height:22px;accent-color:var(--accent-strong);margin:0}
+.setup-check span{min-width:0;display:block;overflow-wrap:anywhere}
+.setup-check small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.setup-item .actions{align-items:center;gap:7px;flex-wrap:wrap}
+.setup-item button:disabled,.workout-exercise button:disabled{opacity:.35;cursor:default}
+.week-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.week-stats>div{display:grid;gap:4px;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 5px}
+.week-stats strong{font-size:22px;color:var(--accent-strong)}
+.week-stats span{font-size:11px;color:var(--muted)}
+.week-exercise{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding:12px 0;cursor:pointer}
+.week-exercise input{width:23px;height:23px;min-height:23px;flex:0 0 23px;accent-color:var(--accent-strong)}
+.week-exercise>span:nth-child(2){min-width:0;flex:1}
+.week-exercise strong{display:block;font-size:14px}
+.week-exercise small{display:block;color:var(--muted);font-size:11px;line-height:1.5}
+.week-details{margin-top:15px;border-top:1px solid var(--line);padding-top:12px}
+.week-details summary{cursor:pointer;font-weight:700;min-height:40px;display:list-item}
+.reaction-area{margin-top:11px;display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+.reaction-label{font-size:12px;background:var(--accent2);border:1px solid var(--line);border-radius:999px;padding:6px 9px}
+.reaction-buttons{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.reaction-btn{min-width:40px;min-height:40px;border-radius:12px;border:1px solid var(--line);background:var(--card2);font-size:20px;cursor:pointer}
+.reaction-btn.selected{border-color:var(--accent-strong);background:var(--accent2)}
+:root[data-theme="midnight"]{--bg:#0b121d;--card:#131c2a;--card2:#1a2635;--text:#f0f3f8;--muted:#a3b0c4;--line:#304056;--accent:#7a9ab9;--accent-strong:#a5c3e1;--accent2:#1c3145;--good:#9fc8ad;color-scheme:dark}
+:root[data-theme="copper"]{--bg:#15100d;--card:#211915;--card2:#2b211c;--text:#f4ece5;--muted:#c2aea0;--line:#443229;--accent:#c38e65;--accent-strong:#e6b28c;--accent2:#38281c;color-scheme:dark}
+:root[data-theme="plum"]{--bg:#150f18;--card:#211925;--card2:#2b2030;--text:#f4edf5;--muted:#baa7c1;--line:#46344b;--accent:#a386b1;--accent-strong:#d4b4e0;--accent2:#342339;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f3f6f3;--card:#fff;--card2:#eff4ef;--text:#17251b;--muted:#5a6b60;--line:#cddbd0;--accent:#668b78;--accent-strong:#416a53;--accent2:#e5f0e7;color-scheme:light}
+:root[data-theme]:not([data-theme="forest"]) body{background:var(--bg);color:var(--text)}
+:root[data-theme]:not([data-theme="forest"]) .topbar{background:var(--card)}
+:root[data-theme]:not([data-theme="forest"]) .card{background:var(--card)}
+:root[data-theme]:not([data-theme="forest"]) dialog{background:var(--card);color:var(--text)}
+:root[data-theme]:not([data-theme="forest"]) .ghost,
+:root[data-theme]:not([data-theme="forest"]) .file-label{background:var(--card2);color:var(--text)}
+:root[data-theme]:not([data-theme="forest"]) input,
+:root[data-theme]:not([data-theme="forest"]) select,
+:root[data-theme]:not([data-theme="forest"]) textarea{background:var(--card);color:var(--text)}
+:root[data-theme]:not([data-theme="forest"]) .primary{background:var(--accent);border-color:var(--accent-strong);color:var(--bg)}
+:root[data-theme]:not([data-theme="forest"]) .suggestion,
+:root[data-theme]:not([data-theme="forest"]) .highlight{background:var(--accent2);border-color:var(--line)}
+:root[data-theme]:not([data-theme="forest"]) .bank-item,
+:root[data-theme]:not([data-theme="forest"]) .bank-manage-row,
+:root[data-theme]:not([data-theme="forest"]) .drag-handle{background:var(--card2);color:var(--text)}
+:root[data-theme="light"] .primary{color:#fff!important}
+:root[data-theme="light"] .card{box-shadow:0 5px 20px #253e2912}
+@media(max-width:360px){.setup-item .actions .compact{padding:0 9px;min-width:38px}}
+
+/* Rask drahåndtering: kompakt GPU-flyttet forhåndsvisning */
+.drag-preview{display:flex;align-items:center;padding:0 16px;font-size:15px;font-weight:750;white-space:nowrap;text-overflow:ellipsis;background:var(--card2);color:var(--text);border:1px solid var(--accent-strong);border-radius:14px;overflow:hidden;box-shadow:0 16px 32px #0008;will-change:transform}
+.reorder-source{display:none!important}
+.drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}
+@media(max-width:520px){.drag-handle{min-width:44px;min-height:44px;width:44px;height:44px;flex-basis:44px}}
