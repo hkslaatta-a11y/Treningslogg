@@ -137,6 +137,45 @@ function saveCloudConfig(c){localStorage.setItem(CLOUD_CONFIG_KEY,JSON.stringify
 function loadCloudMeta(){try{return JSON.parse(localStorage.getItem(CLOUD_META_KEY)||'{}')}catch(e){return{}}}
 function saveCloudMeta(){localStorage.setItem(CLOUD_META_KEY,JSON.stringify(cloudMeta||{}));}
 function cloudPayload(){return {version:state.version||2,profiles:clone(state.profiles||[]),exerciseBank:clone(state.exerciseBank||[])};}
+
+// Oppbevarer sist kjente skyversjon for å kunne slå sammen lokale og eksterne endringer.
+let cloudBasePayload=null,cloudResyncRequested=false;
+function syncEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function syncClone(x){return x===undefined?undefined:clone(x);}
+function syncKey(v,i){return v&&typeof v==='object'&&v.id?String(v.id):v?.startedAt?String(v.startedAt):v?.name?String(v.name)+':'+i:'#'+i;}
+function syncMergeArray(base,local,remote){
+  const baseMap=new Map((base||[]).map((x,i)=>[syncKey(x,i),x]));
+  const localMap=new Map((local||[]).map((x,i)=>[syncKey(x,i),x]));
+  const remoteMap=new Map((remote||[]).map((x,i)=>[syncKey(x,i),x]));
+  const keys=new Set([...remoteMap.keys(),...localMap.keys()]);
+  const out=[];
+  for(const key of keys){
+    const merged=syncMergeValue(baseMap.get(key),localMap.get(key),remoteMap.get(key),'');
+    if(merged!==undefined)out.push(merged);
+  }
+  return out;
+}
+function syncMergeValue(base,local,remote,key=''){
+  if(syncEqual(local,base))return syncClone(remote);
+  if(syncEqual(remote,base))return syncClone(local);
+  if(Array.isArray(local)&&Array.isArray(remote)){
+    if(['profiles','sessions','exercises','sets','programs','exerciseBank'].includes(key))
+      return syncMergeArray(Array.isArray(base)?base:[],local,remote);
+    return syncClone(local);
+  }
+  if(local&&remote&&typeof local==='object'&&typeof remote==='object'&&!Array.isArray(local)&&!Array.isArray(remote)){
+    const keys=new Set([...Object.keys(base&&typeof base==='object'?base:{}),...Object.keys(remote),...Object.keys(local)]);
+    const out={};
+    for(const k of keys){const x=syncMergeValue(base?.[k],local[k],remote[k],k);if(x!==undefined)out[k]=x;}
+    return out;
+  }
+  return syncClone(local);
+}
+function syncMergePayload(base,local,remote){
+  if(!base?.profiles||!remote?.profiles)return syncClone(local);
+  return syncMergeValue(base,local,remote);
+}
+
 function saveState(){ensureExerciseBank(state);localStorage.setItem(STORAGE_KEY,JSON.stringify(state));const snap=JSON.stringify({profiles:state.profiles||[],exerciseBank:state.exerciseBank||[]});if(!cloudApplying&&snap!==cloudLastProfileSnapshot){cloudLastProfileSnapshot=snap;queueCloudPush();}}
 function cloudConfigured(){const c=loadCloudConfig();return !!(c.url&&c.key);}
 async function initCloud(){
@@ -175,22 +214,55 @@ async function resolveCloudHousehold(){
 function applyCloudPayload(payload){
   if(!payload?.profiles)return;
   const current=state.currentProfileId,active=state.active,timer=state.timer;
+   cloudBasePayload=syncClone(payload);
   cloudApplying=true;state.profiles=payload.profiles;if(Array.isArray(payload.exerciseBank))state.exerciseBank=payload.exerciseBank;normalizeProfileNames(state);ensureExerciseBank(state);state.currentProfileId=state.profiles.some(p=>p.id===current)?current:(state.profiles.some(p=>p.id===cloudMeta.deviceProfileId)?cloudMeta.deviceProfileId:state.profiles[0]?.id);state.active=active;state.timer=timer;localStorage.setItem(STORAGE_KEY,JSON.stringify(state));cloudLastProfileSnapshot=JSON.stringify({profiles:state.profiles||[],exerciseBank:state.exerciseBank||[]});cloudApplying=false;renderAll();
 }
-function queueCloudPush(){if(!cloudReady||!cloudMeta.householdId)return;clearTimeout(cloudSyncTimer);const payload=cloudPayload();cloudSyncTimer=setTimeout(()=>pushCloud(payload),900);}
+function queueCloudPush(){
+  if(!cloudReady||!cloudMeta.householdId)return;
+  if(cloudWriteInFlight){cloudResyncRequested=true;return;}
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer=setTimeout(()=>{cloudSyncTimer=null;pushCloud();},900);
+}
 async function pushCloud(payloadOverride=null){
   if(!cloudClient||!cloudReady||!cloudMeta.householdId)return false;
+  if(cloudWriteInFlight){cloudResyncRequested=true;return false;}
   cloudWriteInFlight=true;cloudSuppressPullUntil=Date.now()+4000;
+  const local=payloadOverride||cloudPayload();
   try{
-    const payload=payloadOverride||cloudPayload();
+    // Les skyen før en lagring, slik at uavhengige økter/reaksjoner ikke overskrives av en gammel kopi.
+    const {data:cloudData,error:readError}=await cloudClient.rpc('get_my_training_household');
+    if(readError)throw readError;
+    const record=Array.isArray(cloudData)?cloudData[0]:cloudData;
+    if(!record||record.household_id!==cloudMeta.householdId)throw new Error('Finner ikke delt treningskonto');
+    const remote=record.data?.profiles?record.data:null;
+    const payload=remote?(cloudBasePayload?syncMergePayload(cloudBasePayload,local,remote):syncMergePayload(remote,local,remote)):local;
     const {data,error}=await cloudClient.rpc('save_training_state',{p_household_id:cloudMeta.householdId,p_data:payload});
-    if(error){cloudMeta.lastError=error.message;saveCloudMeta();renderSettings();return false;}
-    const row=Array.isArray(data)?data[0]:data;cloudMeta.updatedAt=row?.updated_at||new Date().toISOString();cloudMeta.lastSyncedAt=new Date().toISOString();cloudMeta.lastError='';saveCloudMeta();renderCloudStatus();return true;
-  }finally{cloudWriteInFlight=false;}
+    if(error)throw error;
+    cloudBasePayload=syncClone(payload);
+    const afterWrite=cloudPayload();
+    // Behold endringer som brukeren gjorde mens skyforespørselen pågikk.
+    if(syncEqual(afterWrite,local)){
+      applyCloudPayload(payload);
+    }else{
+      const combined=syncMergePayload(local,afterWrite,payload);
+      applyCloudPayload(combined);
+      cloudResyncRequested=true;
+    }
+    const row=Array.isArray(data)?data[0]:data;
+    cloudMeta.updatedAt=row?.updated_at||new Date().toISOString();
+    cloudMeta.lastSyncedAt=new Date().toISOString();cloudMeta.lastError='';
+    saveCloudMeta();renderCloudStatus();return true;
+  }catch(err){
+    cloudMeta.lastError=err?.message||'Kunne ikke synkronisere';
+    saveCloudMeta();renderSettings();return false;
+  }finally{
+    cloudWriteInFlight=false;
+    if(cloudResyncRequested){cloudResyncRequested=false;queueCloudPush();}
+  }
 }
 async function pullCloud(showToast=true){
   if(!cloudClient||!cloudReady||!cloudMeta.householdId)return;
-  if(cloudWriteInFlight||Date.now()<cloudSuppressPullUntil||document.querySelector('#modal')?.open)return;
+  if(cloudWriteInFlight||cloudSyncTimer||Date.now()<cloudSuppressPullUntil||document.querySelector('#modal')?.open)return;
   const {data,error}=await cloudClient.rpc('get_my_training_household');
   if(error){cloudMeta.lastError=error.message;saveCloudMeta();renderSettings();return;}
   const row=Array.isArray(data)?data[0]:data;if(!row?.household_id)return;
@@ -228,7 +300,7 @@ function showPasswordRecoveryModal(){
   };
   if(!m.open)m.showModal();
 }
-async function createCloudHousehold(){const {data,error}=await cloudClient.rpc('create_training_household',{initial_data:cloudPayload()});if(error)throw error;const row=Array.isArray(data)?data[0]:data;cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;cloudMeta.updatedAt=row.updated_at;cloudMeta.lastSyncedAt=new Date().toISOString();saveCloudMeta();renderAll();}
+async function createCloudHousehold(){const {data,error}=await cloudClient.rpc('create_training_household',{initial_data:cloudPayload()});if(error)throw error;const row=Array.isArray(data)?data[0]:data;cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;cloudMeta.updatedAt=row.updated_at;cloudMeta.lastSyncedAt=new Date().toISOString();cloudBasePayload=cloudPayload();saveCloudMeta();renderAll();}
 async function joinCloudHousehold(code){const {data,error}=await cloudClient.rpc('join_training_household',{code:String(code||'').trim().toUpperCase()});if(error)throw error;const row=Array.isArray(data)?data[0]:data;cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;cloudMeta.updatedAt=row.updated_at;cloudMeta.lastSyncedAt=new Date().toISOString();saveCloudMeta();if(row.data?.profiles)applyCloudPayload(row.data);renderAll();}
 async function currentCloudUser(){if(!cloudClient)return null;const {data}=await cloudClient.auth.getUser();return data?.user||null;}
 function renderCloudStatus(){const e=document.querySelector('#cloudStatus');if(!e)return;const last=cloudMeta.lastSyncedAt?fmtDate(cloudMeta.lastSyncedAt):'Ikke synkronisert ennå';e.textContent=cloudMeta.lastError?`Synkfeil: ${cloudMeta.lastError}`:`Sist synkronisert: ${last}`;}
