@@ -461,68 +461,69 @@ function resetProgramsToOriginal(){
 
 function enableReorder(container,itemSelector,handleSelector,onOrder){
   if(!container)return;
-  const getOrder=()=>[...container.querySelectorAll(itemSelector)].map(x=>x.dataset.reorderId).filter(Boolean);
+  const order=()=>[...container.querySelectorAll(itemSelector)].map(x=>x.dataset.reorderId).filter(Boolean);
+  const start=(item,x,y)=>{
+    if(!item)return null;
+    const r=item.getBoundingClientRect(),before=order();
+    const placeholder=document.createElement('div');placeholder.className='reorder-placeholder';
+    placeholder.style.height=`${Math.max(54,r.height)}px`;container.insertBefore(placeholder,item);
+    const ghost=document.createElement('div');ghost.className='reorder-ghost drag-preview';
+    ghost.textContent=item.querySelector('h3,strong')?.textContent?.trim()||'Flytt øvelse';
+    Object.assign(ghost.style,{position:'fixed',left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:'54px',zIndex:'9999',pointerEvents:'none'});
+    document.body.appendChild(ghost);
+    item.classList.add('reorder-source');document.body.classList.add('is-reordering');
+    let atY=y,frame=0,active=true;
+    const place=()=>{
+      const others=[...container.querySelectorAll(itemSelector)].filter(v=>v!==item);let target=null;
+      for(const v of others){const b=v.getBoundingClientRect();if(atY<b.top+b.height/2){target=v;break;}}
+      if(target)container.insertBefore(placeholder,target);else container.appendChild(placeholder);
+    };
+    const tick=()=>{
+      frame=0;if(!active)return;
+      ghost.style.setProperty('transform',`translate3d(0,${atY-y}px,0)`,'important');
+      place();
+      const h=window.innerHeight,edge=80;
+      let speed=0;if(atY<edge)speed=-Math.min(15,(edge-atY)*.18);else if(atY>h-edge)speed=Math.min(15,(atY-(h-edge))*.18);
+      if(speed){window.scrollBy(0,speed);frame=requestAnimationFrame(tick);}
+    };
+    const move=cy=>{atY=cy;if(!frame)frame=requestAnimationFrame(tick);};
+    const end=(cancel=false)=>{
+      active=false;if(frame)cancelAnimationFrame(frame);
+      if(!cancel)container.insertBefore(item,placeholder);
+      placeholder.remove();ghost.remove();item.classList.remove('reorder-source');document.body.classList.remove('is-reordering');
+      onOrder(cancel?before:order());
+    };
+    move(y);
+    return {move,end};
+  };
   for(const handle of container.querySelectorAll(handleSelector)){
-    handle.setAttribute('aria-label','Hold og dra for å flytte øvelsen. Piltaster kan også brukes.');
-    handle.setAttribute('title','Dra eller bruk piltastene');
+    handle.setAttribute('aria-label','Dra for å flytte. Piltaster kan også brukes.');
     handle.addEventListener('keydown',e=>{
       if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
-      const item=handle.closest(itemSelector);if(!item)return;
-      const items=[...container.querySelectorAll(itemSelector)],i=items.indexOf(item),step=e.key==='ArrowUp'?-1:1;
-      if(i+step<0||i+step>=items.length)return;
-      e.preventDefault();
-      if(step<0)container.insertBefore(item,items[i-1]);else container.insertBefore(items[i+1],item);
-      onOrder(getOrder());
+      const item=handle.closest(itemSelector),all=[...container.querySelectorAll(itemSelector)],i=all.indexOf(item);
+      const dir=e.key==='ArrowUp'?-1:1;
+      if(i<0||i+dir<0||i+dir>=all.length)return;e.preventDefault();
+      if(dir<0)container.insertBefore(item,all[i-1]);else container.insertBefore(all[i+1],item);
+      onOrder(order());
     });
-    handle.addEventListener('pointerdown',e=>{
-      if(e.button!=null&&e.button!==0)return;
-      const item=handle.closest(itemSelector);if(!item)return;
+    handle.addEventListener('touchstart',e=>{
+      const touch=e.touches?.[0];if(!touch)return;
+      const ctx=start(handle.closest(itemSelector),touch.clientX,touch.clientY);if(!ctx)return;
       e.preventDefault();
-      const bounds=item.getBoundingClientRect(),oldIds=getOrder();
-      const placeholder=document.createElement('div');placeholder.className='reorder-placeholder';
-      placeholder.style.height=`${Math.max(54,bounds.height)}px`;
-      container.insertBefore(placeholder,item);
-      const ghost=document.createElement('div');
-      ghost.className='reorder-ghost drag-preview';
-      ghost.textContent=item.querySelector('h3,strong')?.textContent?.trim()||'Flytt øvelse';
-      Object.assign(ghost.style,{position:'fixed',left:`${bounds.left}px`,top:`${bounds.top}px`,width:`${bounds.width}px`,height:'54px',zIndex:'9999',pointerEvents:'none'});
-      document.body.appendChild(ghost);
-      item.classList.add('reorder-source');
-      document.body.classList.add('is-reordering');
-      let pointerY=e.clientY,pointerX=e.clientX,frame=0,active=true;
-      const placeAt=()=>{
-        const others=[...container.querySelectorAll(itemSelector)].filter(x=>x!==item);
-        let before=null;
-        for(const other of others){const r=other.getBoundingClientRect();if(pointerY<r.top+r.height/2){before=other;break;}}
-        if(before)container.insertBefore(placeholder,before);else container.appendChild(placeholder);
-      };
-      const tick=()=>{
-        frame=0;if(!active)return;
-        ghost.style.setProperty('transform',`translate3d(0,${pointerY-e.clientY}px,0)`,'important');
-        placeAt();
-        const edge=76,h=window.innerHeight;
-        let speed=0;if(pointerY<edge)speed=-Math.min(14,(edge-pointerY)*.18);
-        else if(pointerY>h-edge)speed=Math.min(14,(pointerY-(h-edge))*.18);
-        if(speed){window.scrollBy(0,speed);frame=requestAnimationFrame(tick);}
-      };
-      const onMove=ev=>{
-        if(ev.pointerId!==e.pointerId)return;
-        ev.preventDefault();
-        pointerY=ev.clientY;pointerX=ev.clientX;
-        if(!frame)frame=requestAnimationFrame(tick);
-      };
-      const cleanup=(ev,cancel=false)=>{
-        if(ev.pointerId!==e.pointerId)return;
-        active=false;if(frame)cancelAnimationFrame(frame);
-        window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onEnd);window.removeEventListener('pointercancel',onCancel);
-        if(!cancel)container.insertBefore(item,placeholder);
-        placeholder.remove();ghost.remove();item.classList.remove('reorder-source');document.body.classList.remove('is-reordering');
-        onOrder(cancel?oldIds:getOrder());
-      };
-      const onEnd=ev=>cleanup(ev,false),onCancel=ev=>cleanup(ev,true);
-      window.addEventListener('pointermove',onMove,{passive:false});
-      window.addEventListener('pointerup',onEnd);window.addEventListener('pointercancel',onCancel);
-      if(!frame)frame=requestAnimationFrame(tick);
+      const onMove=ev=>{const t=ev.touches?.[0];if(!t)return;ev.preventDefault();ctx.move(t.clientY);};
+      const clear=()=>{document.removeEventListener('touchmove',onMove);document.removeEventListener('touchend',onEnd);document.removeEventListener('touchcancel',onCancel);};
+      const onEnd=()=>{clear();ctx.end(false);};
+      const onCancel=()=>{clear();ctx.end(true);};
+      document.addEventListener('touchmove',onMove,{passive:false});document.addEventListener('touchend',onEnd);document.addEventListener('touchcancel',onCancel);
+    },{passive:false});
+    handle.addEventListener('pointerdown',e=>{
+      if(e.pointerType==='touch'||(e.button!=null&&e.button!==0))return;
+      e.preventDefault();const ctx=start(handle.closest(itemSelector),e.clientX,e.clientY);if(!ctx)return;
+      const onMove=ev=>{if(ev.pointerId===e.pointerId){ev.preventDefault();ctx.move(ev.clientY);}};
+      const clear=()=>{window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onEnd);window.removeEventListener('pointercancel',onCancel);};
+      const onEnd=ev=>{if(ev.pointerId!==e.pointerId)return;clear();ctx.end(false);};
+      const onCancel=ev=>{if(ev.pointerId!==e.pointerId)return;clear();ctx.end(true);};
+      window.addEventListener('pointermove',onMove,{passive:false});window.addEventListener('pointerup',onEnd);window.addEventListener('pointercancel',onCancel);
     });
   }
 }
