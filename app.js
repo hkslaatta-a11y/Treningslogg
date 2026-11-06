@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.1';
+const APP_VERSION='2.7.2';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -779,14 +779,23 @@ function setDeviceProfile(id){
 function exerciseReactionsMarkup(sess,e,si,ei){
   const owner=state.currentProfileId,reactor=deviceProfileID(),
     reactions=e.reactions&&typeof e.reactions==='object'?e.reactions:{};
-  const labels=Object.entries(reactions).filter(([pid,emoji])=>state.profiles.some(p=>p.id===pid)&&['❤️','🔥','💪','👏','😍','🏆'].includes(emoji))
+  const labels=Object.entries(reactions)
+    .filter(([pid,emoji])=>state.profiles.some(p=>p.id===pid)&&['❤️','🔥','💪','👏','😍','🏆'].includes(emoji))
     .map(([pid,emoji])=>`<span class="reaction-label">${esc(state.profiles.find(p=>p.id===pid)?.name||pid)} ${emoji}</span>`).join('');
   if(!reactor||!state.profiles.some(p=>p.id===reactor))
     return `<div class="reaction-area">${labels||''}<p class="muted small">Velg «Denne telefonen brukes primært av» under Data for å reagere.</p></div>`;
-  if(reactor===owner)return `<div class="reaction-area">${labels||'<span class="muted small">Ingen reaksjoner ennå</span>'}</div>`;
-  return `<div class="reaction-area">${labels}<div class="reaction-buttons" aria-label="Reager på ${esc(e.name)}">
-    ${['❤️','🔥','💪','👏','😍','🏆'].map(emoji=>`<button type="button" class="reaction-btn ${reactions[reactor]===emoji?'selected':''}" data-react-session="${si}" data-react-ex="${ei}" data-react-emoji="${emoji}" aria-label="Reager med ${emoji}" aria-pressed="${reactions[reactor]===emoji}">${emoji}</button>`).join('')}
-    </div></div>`;
+  if(reactor===owner)
+    return labels?`<div class="reaction-area">${labels}</div>`:'';
+  const chosen=reactions[reactor]||'';
+  return `<div class="reaction-area">
+    ${labels}
+    <button type="button" class="reaction-toggle" data-react-toggle="${si}:${ei}" aria-label="Reager på ${esc(e.name)}" aria-haspopup="true" aria-expanded="false" title="Reager på øvelsen">
+      <span aria-hidden="true">${chosen?'😊':'😊'}</span>
+    </button>
+    <div class="reaction-picker" hidden aria-label="Velg reaksjon for ${esc(e.name)}">
+      ${['❤️','🔥','💪','👏','😍','🏆'].map(emoji=>`<button type="button" class="reaction-btn ${chosen===emoji?'selected':''}" data-react-session="${si}" data-react-ex="${ei}" data-react-emoji="${emoji}" aria-label="${chosen===emoji?`Fjern ${emoji}-reaksjon`:`Reager med ${emoji}`}" aria-pressed="${chosen===emoji}">${emoji}</button>`).join('')}
+    </div>
+  </div>`;
 }
 function setExerciseReaction(si,ei,emoji){
   const actor=deviceProfileID(),target=state.currentProfileId;
@@ -810,6 +819,14 @@ function renderHistory(){
     ${exerciseReactionsMarkup(sess,e,si,ei)}</div>`).join('')}
     ${sess.notes?`<p class="muted small note-box">${esc(sess.notes)}</p>`:''}
     <div class="history-actions"><button class="ghost compact" data-edit-session="${si}">Rediger økt</button><button class="text-danger" data-del-session="${si}">Slett økt</button></div></div>`).join('')}`;
+  el.querySelectorAll('[data-react-toggle]').forEach(b=>b.onclick=()=>{
+    const picker=b.closest('.reaction-area')?.querySelector('.reaction-picker');
+    if(!picker)return;
+    const opening=picker.hidden;
+    el.querySelectorAll('.reaction-picker').forEach(p=>{p.hidden=true;p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');});
+    picker.hidden=!opening;
+    b.setAttribute('aria-expanded',String(opening));
+  });
   el.querySelectorAll('[data-react-session]').forEach(b=>b.onclick=()=>setExerciseReaction(+b.dataset.reactSession,+b.dataset.reactEx,b.dataset.reactEmoji));
   el.querySelectorAll('[data-edit-session]').forEach(b=>b.onclick=()=>openSessionEditor(+b.dataset.editSession));
   el.querySelectorAll('[data-del-session]').forEach(b=>b.onclick=()=>{
@@ -926,4 +943,11 @@ function installHelp(){const m=document.querySelector('#modal'),b=document.query
 
 function initSplash(){const sp=document.querySelector('#splashScreen');if(!sp)return;const toggle=sp.querySelector('#splashToggle');if(toggle){toggle.checked=shouldShowSplash();toggle.onchange=()=>setSplashPreference(toggle.checked);}const start=sp.querySelector('#splashStart');if(start)start.onclick=()=>hideSplash(true);const open=sp.querySelector('#splashOpen');if(open)open.onclick=()=>hideSplash(false);if(!shouldShowSplash())sp.classList.add('hidden');}
 applyTheme();initSplash();
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.1').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.addEventListener('click',e=>{
+  if(e.target.closest('[data-react-toggle],.reaction-picker'))return;
+  document.querySelectorAll('.reaction-picker:not([hidden])').forEach(p=>{
+    p.hidden=true;
+    p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
+  });
+});
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.2').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
