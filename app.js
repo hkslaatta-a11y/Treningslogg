@@ -206,7 +206,7 @@ function cloudAdoptCheckedRow(row,forceRemote=false){
   cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;
   cloudMeta.updatedAt=row.updated_at;
   const saved=cloudSavedBase(row.household_id);
-  const base=!forceRemote&&(cloudBasePayload&&cloudMeta.householdId===row.household_id?cloudBasePayload:saved?.payload);
+  const base=!forceRemote&&(cloudBasePayload&&cloudBaseRevision!==null?cloudBasePayload:saved?.payload);
   const local=cloudPayload();
   const merged=base?syncMergePayload(base,local,row.data):syncClone(row.data);
   cloudRememberBase(row.household_id,row.data,row.revision);
@@ -251,6 +251,7 @@ async function resolveCloudHousehold(){
     const data=await readCloudChecked();
     const row=Array.isArray(data)?data[0]:data;
     if(row?.household_id){
+      if(cloudMeta.householdId&&cloudMeta.householdId!==row.household_id){cloudBasePayload=null;cloudBaseRevision=null;}
       cloudAdoptCheckedRow(cloudCheckedRow(row));
       cloudMeta.lastError='';saveCloudMeta();
     }else{
@@ -345,7 +346,7 @@ async function pullCloud(showToast=true){
 
 async function cloudSignUp(email,password){const {data,error}=await cloudClient.auth.signUp({email,password});if(error)throw error;return data;}
 async function cloudSignIn(email,password){const {data,error}=await cloudClient.auth.signInWithPassword({email,password});if(error)throw error;cloudReady=true;await resolveCloudHousehold();return data;}
-async function cloudSignOut(){if(cloudClient)await cloudClient.auth.signOut();cloudReady=false;cloudMeta={deviceProfileId:cloudMeta.deviceProfileId};saveCloudMeta();renderAll();}
+async function cloudSignOut(){if(cloudClient)await cloudClient.auth.signOut();cloudReady=false;cloudSyncAvailable=false;cloudBasePayload=null;cloudBaseRevision=null;cloudMeta={deviceProfileId:cloudMeta.deviceProfileId};saveCloudMeta();renderAll();}
 async function sendPasswordRecovery(email){
   if(!cloudClient)throw new Error('Supabase er ikke koblet til.');
   const redirectTo=location.origin+location.pathname;
@@ -375,8 +376,24 @@ function showPasswordRecoveryModal(){
   };
   if(!m.open)m.showModal();
 }
-async function createCloudHousehold(){const {data,error}=await cloudClient.rpc('create_training_household',{initial_data:cloudPayload()});if(error)throw error;const row=Array.isArray(data)?data[0]:data;cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;cloudMeta.updatedAt=row.updated_at;cloudMeta.lastSyncedAt=new Date().toISOString();cloudBasePayload=cloudPayload();saveCloudMeta();renderAll();}
-async function joinCloudHousehold(code){const {data,error}=await cloudClient.rpc('join_training_household',{code:String(code||'').trim().toUpperCase()});if(error)throw error;const row=Array.isArray(data)?data[0]:data;cloudMeta.householdId=row.household_id;cloudMeta.inviteCode=row.invite_code;cloudMeta.updatedAt=row.updated_at;cloudMeta.lastSyncedAt=new Date().toISOString();saveCloudMeta();if(row.data?.profiles)applyCloudPayload(row.data);renderAll();}
+async function createCloudHousehold(){
+  if(!cloudSyncAvailable)throw new Error('Installer Supabase-migrering 2.7.0 først.');
+  const {error}=await cloudClient.rpc('create_training_household',{initial_data:cloudPayload()});
+  if(error)throw error;
+  const row=cloudCheckedRow(await readCloudChecked());
+  cloudAdoptCheckedRow(row,true);
+  cloudMeta.lastSyncedAt=new Date().toISOString();cloudMeta.lastError='';
+  saveCloudMeta();renderAll();
+}
+async function joinCloudHousehold(code){
+  if(!cloudSyncAvailable)throw new Error('Installer Supabase-migrering 2.7.0 først.');
+  const {error}=await cloudClient.rpc('join_training_household',{code:String(code||'').trim().toUpperCase()});
+  if(error)throw error;
+  const row=cloudCheckedRow(await readCloudChecked());
+  cloudAdoptCheckedRow(row,true);
+  cloudMeta.lastSyncedAt=new Date().toISOString();cloudMeta.lastError='';
+  saveCloudMeta();renderAll();
+}
 async function currentCloudUser(){if(!cloudClient)return null;const {data}=await cloudClient.auth.getUser();return data?.user||null;}
 function renderCloudStatus(){const e=document.querySelector('#cloudStatus');if(!e)return;const last=cloudMeta.lastSyncedAt?fmtDate(cloudMeta.lastSyncedAt):'Ikke synkronisert ennå';e.textContent=cloudMeta.lastError?`Synkfeil: ${cloudMeta.lastError}`:`Sist synkronisert: ${last}`;}
 
@@ -873,6 +890,7 @@ async function renderSettings(){
   const el=document.querySelector('#settings'),cfg=loadCloudConfig();let user=null;if(cloudClient&&cloudReady)user=await currentCloudUser();
   const cloudCard=!cloudConfigured()?`<div class="card"><span class="eyebrow">Nyhet i v${APP_VERSION}</span><h2>Skylagring og synk</h2><p class="muted small">Koble appen til et gratis Supabase-prosjekt. Lim inn <strong>Project URL</strong> og <strong>anon/publishable key</strong> fra Supabase. Bruk aldri service_role-nøkkelen.</p><div class="stack"><label>Supabase Project URL<input id="cloudUrl" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url||'')}"></label><label>Anon / publishable key<input id="cloudKey" type="password" placeholder="sb_publishable_… eller anon key" value="${esc(cfg.key||'')}"></label><button class="primary" id="saveCloudConfig">Lagre skyoppsett</button></div></div>`:
   !user?`<div class="card"><span class="eyebrow">Skylagring</span><h2>Logg inn</h2><p class="muted small">Skyoppsettet er nå innebygd i appen. Håvard og Stine logger bare inn med hver sin Supabase-bruker.</p><div class="stack"><label>E-post<input id="cloudEmail" type="email" autocomplete="email"></label><label>Passord<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6"></label><div class="grid2"><button class="ghost" id="cloudRegister">Opprett bruker</button><button class="primary" id="cloudLogin">Logg inn</button></div><button class="ghost" id="forgotPassword" type="button">Glemt passord</button></div></div>`:
+  !cloudSyncAvailable?`<div class="card"><span class="eyebrow">Synkronisering blokkert</span><h2>Supabase må oppgraderes</h2><p class="muted small">${esc(cloudMeta.lastError||'Installer migrering 2.7.0 med atomisk versjonskontroll.')}</p><p class="muted small">Treningsdata lagres fortsatt lokalt, men skyen skrives ikke til før migreringen er installert.</p><button type="button" class="ghost" id="retryCloudInit">Sjekk Supabase på nytt</button></div>`:
   !cloudMeta.householdId?`<div class="card"><span class="eyebrow">Innlogget</span><h2>${esc(user.email||'Supabase-bruker')}</h2><p class="muted small">På Håvard sin telefon: opprett den delte treningskontoen. På Stine sin telefon: skriv inn delingskoden Håvard får.</p><div class="stack"><button class="primary" id="createHousehold">Opprett delt treningskonto</button><div class="divider">eller</div><label>Delingskode<input id="joinCode" autocomplete="off" autocapitalize="characters" placeholder="F.eks. A1B2C3D4E5F6"></label><button class="ghost" id="joinHousehold">Koble til eksisterende konto</button><button class="text-danger" id="cloudLogout">Logg ut</button></div></div>`:
   `<div class="card"><span class="eyebrow">Skysynk aktiv</span><h2>${esc(user.email||'Innlogget')}</h2><div class="cloud-ok">✓ Håvard og Stine kan synkronisere samme data</div><p class="muted small">Delingskode: <strong class="code">${esc(cloudMeta.inviteCode||'—')}</strong></p><label>Denne telefonen brukes primært av<select id="deviceProfile">${state.profiles.map(p=>`<option value="${p.id}" ${cloudMeta.deviceProfileId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="stack" style="margin-top:10px"><button class="primary" id="syncNow">Synkroniser nå</button><div id="cloudStatus" class="muted small"></div><button class="text-danger" id="cloudLogout">Logg ut av skyen</button></div></div>`;
   el.innerHTML=`${cloudCard}<div class="card"><h2>Backup og data</h2><p class="muted small"><strong>Behold fortsatt lokale backups.</strong> Skylagring synkroniserer program og fullførte økter mellom telefonene, mens en JSON-backup er ekstra sikkerhet.</p><div class="stack"><button class="primary" id="exportBtn">Eksporter full backup</button><label class="file-label">Importer backup<input type="file" id="importFile" accept="application/json,.json"></label></div></div><div class="card"><h3>Profiler</h3><p class="muted small">Begge profiler og all fullført historikk deles når skysynk er aktiv. Pågående økt lagres lokalt på telefonen til den fullføres.</p>${state.profiles.map(p=>`<label>Profilnavn<input data-profile-name="${p.id}" value="${esc(p.name)}"></label><label>Rapport-e-post for ${esc(p.name)}<input type="email" data-report-email="${p.id}" value="${esc(p.reportEmail||'')}" placeholder="navn@epost.no"></label>`).join('')}</div><div class="card"><h3>Utseende</h3><p class="muted small">Fargetemaet lagres på denne telefonen.</p><label>Fargetema<select id="themeSelect"><option value="forest" ${activeTheme()==='forest'?'selected':''}>Rolig premium · mørk grønn</option><option value="midnight" ${activeTheme()==='midnight'?'selected':''}>Midnatt · mørk blå</option><option value="copper" ${activeTheme()==='copper'?'selected':''}>Kobber · varm mørk</option><option value="plum" ${activeTheme()==='plum'?'selected':''}>Plomme · mørk lilla</option><option value="light" ${activeTheme()==='light'?'selected':''}>Lys</option></select></label></div><div class="card"><h3>Startside</h3><label class="toggle-row"><input type="checkbox" id="showSplashSetting" ${shouldShowSplash()?'checked':''}><span><strong>Vis startside ved oppstart</strong><small>Innstillingen gjelder denne telefonen.</small></span></label><button class="ghost" id="previewSplash" style="margin-top:10px">Vis startsiden nå</button></div><div class="card"><h3>App</h3><p class="muted small">Treningslogg v${APP_VERSION} · Håvard & Stine · søkbar øvelsesbank · forbedret drag-and-drop · alternative øvelser · komma-desimaler · KV/+kg/assistanse · innebygd skyoppsett · programeditor på mobil · valgfrie øvelser · kommentarer · historikkredigering · månedsrapport · Supabase-skysynk.</p></div>`;
@@ -886,7 +904,7 @@ async function renderSettings(){
   const join=el.querySelector('#joinHousehold');if(join)join.onclick=async()=>{const code=el.querySelector('#joinCode').value.trim();if(!code)return toast('Skriv inn delingskoden');if(!confirm('Ved tilkobling hentes den delte treningskontoen fra skyen. Lokale profil/programdata på denne telefonen erstattes. Fortsette?'))return;try{await joinCloudHousehold(code);toast('Koblet til delt treningskonto');}catch(e){alert(e.message||'Ugyldig delingskode');}};
   const sync=el.querySelector('#syncNow');if(sync)sync.onclick=()=>pullCloud(true);
   const logout=el.querySelector('#cloudLogout');if(logout)logout.onclick=()=>cloudSignOut();
-  const dp=el.querySelector('#deviceProfile');if(dp)dp.onchange=()=>{cloudMeta.deviceProfileId=dp.value;state.currentProfileId=dp.value;saveCloudMeta();saveState();renderAll();};renderCloudStatus();
+  const retry=el.querySelector('#retryCloudInit');if(retry)retry.onclick=async()=>{await resolveCloudHousehold();renderAll();};const dp=el.querySelector('#deviceProfile');if(dp)dp.onchange=()=>{cloudMeta.deviceProfileId=dp.value;state.currentProfileId=dp.value;saveCloudMeta();saveState();renderAll();};renderCloudStatus();
 }
 function renderAll(){renderProfileBar();renderPrograms();renderWorkout();renderHistory();renderWeek();renderProgress();renderSettings();const count=profile().sessions.length;const cloud=cloudReady&&cloudMeta.householdId?' · ☁︎ synk':' ';document.querySelector('#statusLine').textContent=state.active?`Pågående: ${state.active.name}`:`${profile().name} · ${count} lagrede økter${cloud}`;}
 function installHelp(){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Installer på iPhone</h3><ol class="install-steps"><li>Åpne siden i <strong>Safari</strong>.</li><li>Trykk <strong>Del</strong>.</li><li>Velg <strong>Legg til på Hjem-skjerm</strong>.</li><li>Trykk <strong>Legg til</strong>.</li></ol><p class="muted small">Ved oppdatering på samme nettadresse beholdes localStorage-data. Ta likevel backup først.</p><button value="cancel" class="primary" style="width:100%">Lukk</button>`;m.showModal();}
