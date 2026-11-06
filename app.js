@@ -246,6 +246,8 @@ async function pushCloud(payloadOverride=null){
     }else{
       const combined=syncMergePayload(local,afterWrite,payload);
       applyCloudPayload(combined);
+      // Etterslepet er fortsatt lokalt; basen må være det som faktisk er skrevet til Supabase.
+      cloudBasePayload=syncClone(payload);
       cloudResyncRequested=true;
     }
     const row=Array.isArray(data)?data[0]:data;
@@ -818,4 +820,4 @@ function installHelp(){const m=document.querySelector('#modal'),b=document.query
 
 function initSplash(){const sp=document.querySelector('#splashScreen');if(!sp)return;const toggle=sp.querySelector('#splashToggle');if(toggle){toggle.checked=shouldShowSplash();toggle.onchange=()=>setSplashPreference(toggle.checked);}const start=sp.querySelector('#splashStart');if(start)start.onclick=()=>hideSplash(true);const open=sp.querySelector('#splashOpen');if(open)open.onclick=()=>hideSplash(false);if(!shouldShowSplash())sp.classList.add('hidden');}
 applyTheme();initSplash();
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.6.2').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.0').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
