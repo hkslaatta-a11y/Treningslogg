@@ -326,6 +326,7 @@ function startWorkout(programId){const p=profile().programs.find(x=>x.id===progr
 function bonusSuggestions(pid=state.currentProfileId){
   const last=profileSessions(pid)[0];
   if(!last||/bonus/i.test(last.name||''))return[];
+  if(Date.now()-Date.parse(last.finishedAt||last.startedAt||'')>7*86400000)return[];
   const omitted=(last.omittedExercises||[]).filter(e=>e.reason==='skipped').map(e=>clone(e));
   const seen=new Set(omitted.map(e=>normalizedName(e.name)));
   for(const e of last.exercises||[]){
@@ -600,6 +601,61 @@ function openSessionEditor(index){
 function personalRecords(){const best=new Map();for(const sess of profile().sessions)for(const e of sess.exercises||[]){if(isBodyweightExercise(e))continue;for(const set of e.sets||[]){const v=oneRM(num(set.weight),num(set.reps));if(!v)continue;const key=normalizedName(e.name),cur=best.get(key);if(!cur||v>cur.e1rm)best.set(key,{name:e.name,weight:num(set.weight),reps:num(set.reps),e1rm:v,date:sess.finishedAt||sess.startedAt});}}return[...best.values()].sort((a,b)=>a.name.localeCompare(b.name,'nb'));}
 function seriesFor(name){const key=normalizedName(name),arr=[];for(const sess of [...profile().sessions].reverse()){const e=(sess.exercises||[]).find(x=>normalizedName(x.name)===key);if(!e||isBodyweightExercise(e))continue;let best=0;for(const set of e.sets||[])best=Math.max(best,oneRM(num(set.weight),num(set.reps)));if(best)arr.push({date:sess.finishedAt||sess.startedAt,value:best});}return arr;}
 function svgChart(data){if(data.length<2)return`<div class="muted small">Trenger minst to registrerte økter for graf.</div>`;const w=600,h=170,p=24,min=Math.min(...data.map(d=>d.value)),max=Math.max(...data.map(d=>d.value)),span=Math.max(1,max-min),coords=data.map((d,i)=>[p+i*(w-2*p)/(data.length-1),h-p-(d.value-min)*(h-2*p)/span]);const pts=coords.map(x=>x.join(',')).join(' ');return`<svg class="chart" viewBox="0 0 ${w} ${h}"><line x1="${p}" y1="${h-p}" x2="${w-p}" y2="${h-p}" stroke="currentColor" opacity=".2"/><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${coords.map((x,i)=>`<circle cx="${x[0]}" cy="${x[1]}" r="5" fill="currentColor"><title>${data[i].value.toFixed(1)} kg e1RM</title></circle>`).join('')}</svg><div class="row small muted"><span>${data[0].value.toFixed(1)} kg</span><span>${data.at(-1).value.toFixed(1)} kg e1RM</span></div>`;}
+function weekData(pid=state.currentProfileId){
+  const p=state.profiles.find(x=>x.id===pid),start=Date.now()-7*86400000;
+  const sessions=(p?.sessions||[]).filter(x=>{const t=Date.parse(x.finishedAt||x.startedAt||'');return Number.isFinite(t)&&t>=start&&t<=Date.now()+86400000;});
+  const skipped=[],partial=[],replaced=[];let completed=0;
+  const trained=new Set();
+  for(const sess of sessions){
+    const date=sess.finishedAt||sess.startedAt,exercises=sess.exercises||[];
+    for(const e of exercises){
+      const key=normalizedName(e.name),done=(e.sets||[]).filter(st=>st.completed||num(st.reps)>0).length;
+      if(done)trained.add(key);
+      const planned=Number(e.targetSets)||e.sets?.length||done;
+      const info={id:`${sess.id||date}:${e.id||key}`,name:e.name,from:sess.name,date,
+        remaining:Math.max(0,planned-done),planned,done,
+        spec:{name:e.name,targetSets:Math.max(1,planned-done),targetReps:e.targetReps||'',tempo:e.tempo||'',restSeconds:e.restSeconds??120,notes:e.notes||'',bodyweight:e.bodyweight}};
+      if(done>=planned)completed++;else if(done>0)partial.push(info);else skipped.push(info);
+    }
+    for(const e of sess.omittedExercises||[]){
+      if(e.reason==='replaced'){replaced.push({name:e.name,from:sess.name,date});continue;}
+      if(e.reason!=='skipped')continue;
+      if(exercises.some(x=>normalizedName(x.name)===normalizedName(e.name)))continue;
+      const info={id:`${sess.id||date}:omitted:${e.sourceExerciseID||e.name}`,name:e.name,from:sess.name,date,
+        remaining:Number(e.targetSets)||3,planned:Number(e.targetSets)||3,done:0,
+        spec:{name:e.name,targetSets:Number(e.targetSets)||3,targetReps:e.targetReps||'',tempo:e.tempo||'',restSeconds:e.restSeconds??120,notes:e.notes||'',bodyweight:e.bodyweight}};
+      skipped.push(info);
+    }
+  }
+  const unscheduled=[...new Set((p?.programs||[]).filter(x=>!/bonus/i.test(x.name||'')).flatMap(x=>x.exercises||[]).filter(e=>!e.optional&&!trained.has(normalizedName(e.name))).map(e=>e.name))].sort((a,b)=>a.localeCompare(b,'nb'));
+  return {sessions,skipped,partial,replaced,completed,unscheduled};
+}
+function renderWeek(){
+  const el=document.querySelector('#week');if(!el)return;
+  const d=weekData(),pending=[...d.skipped,...d.partial];
+  el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(profile().name)} · Siste syv dager</span><h2>Ukeoversikt</h2><p class="muted small">Bare øvelser fra økter du faktisk startet kan bli registrert som utelatt.</p></div></div>
+    <div class="week-stats"><div><strong>${d.sessions.length}</strong><span>Økter</span></div><div><strong>${d.completed}</strong><span>Fullført</span></div><div><strong>${d.skipped.length}</strong><span>Utelatt</span></div><div><strong>${d.partial.length}</strong><span>Delvis</span></div></div>
+    <div class="card"><h3>Utelatt eller delvis gjennomført</h3>
+      <p class="muted small">Velg øvelsene du ønsker som forslag til en bonusøkt. Ingen av dem er obligatoriske.</p>
+      ${pending.length?pending.map((x,i)=>`<label class="week-exercise"><input type="checkbox" data-week-select="${i}">
+        <span><strong>${esc(x.name)}</strong><small>${esc(x.from)} · ${fmtDate(x.date)} · ${x.done?`${x.done} av ${x.planned} sett gjennomført`:`${x.planned} sett utelatt`}</small></span>
+        <span class="tag">${x.done?'Delvis':'Utelatt'}</span></label>`).join(''):'<p class="muted small">Ingen utelatte eller ufullførte øvelser de siste syv dagene.</p>'}
+      ${pending.length?'<button type="button" class="primary" id="weekBonus">Planlegg bonusøkt med valgte øvelser</button>':''}
+      ${d.replaced.length?`<details class="week-details"><summary>${d.replaced.length} bevisste øvelsesbytter</summary>${d.replaced.map(x=>`<p class="muted small">${esc(x.name)} · ${esc(x.from)} · ${fmtDate(x.date)}</p>`).join('')}</details>`:''}
+    </div>
+    <div class="card"><details class="week-details"><summary>Ikke trent fra programmalene (${d.unscheduled.length})</summary>
+      <p class="muted small">Disse øvelsene finnes i programmene dine, men er ikke registrert de siste syv dagene. Det betyr ikke at de var planlagt eller at du burde ha trent dem.</p>
+      ${d.unscheduled.length?d.unscheduled.map(x=>`<p class="muted small">• ${esc(x)}</p>`).join(''):'<p class="muted small">Alle programøvelsene er registrert denne uken.</p>'}
+    </details></div>`;
+  const btn=el.querySelector('#weekBonus');
+  if(btn)btn.onclick=()=>{
+    const selected=[...el.querySelectorAll('[data-week-select]:checked')].map(x=>pending[+x.dataset.weekSelect]);
+    if(!selected.length)return toast('Velg minst én øvelse');
+    const p=profile().programs.find(x=>/bonus/i.test(x.name||''));
+    if(!p)return toast('Opprett en BONUSØKT i programmet først');
+    openWorkoutSetup(p,selected.map(x=>({...x.spec,targetSets:Math.max(1,x.remaining)})));
+  };
+}
 function renderProgress(){
   const el=document.querySelector('#progress'),prs=personalRecords(),available=[...new Set(profile().sessions.map(s=>monthKeyFromDate(s.finishedAt||s.startedAt)))].sort().reverse(),currentKey=available.includes(el.dataset.month)?el.dataset.month:(available[0]||monthKeyFromDate(new Date())),report=monthlyReportData(currentKey);
   const reportHtml=`<div class="card"><div class="row wrap"><div><span class="eyebrow">Månedsrapport · ${esc(profile().name)}</span><h2>${esc(monthLabel(currentKey))}</h2></div><div class="actions"><button class="ghost compact" id="emailReport">Send e-post</button></div></div><label>Måned<select id="reportMonth">${(available.length?available:[currentKey]).map(k=>`<option value="${k}" ${k===currentKey?'selected':''}>${esc(monthLabel(k))}</option>`).join('')}</select></label><div class="report-summary"><strong>${report.sessions.length} økter</strong><span>${Math.round(report.totalVolume).toLocaleString('nb-NO')} kg ekstern volum</span></div><p class="report-text">${esc(report.text)}</p>${report.rows.length?report.rows.map(x=>`<div class="report-exercise"><div class="row"><strong>${esc(x.name)}</strong><span class="trend ${x.delta!=null&&x.delta>1?'up':x.delta!=null&&x.delta<-1?'down':''}">${esc(x.trend)}</span></div><div class="report-metrics"><span>${x.sets} sett</span><span>${x.reps} reps</span>${x.bodyweight?`<span>Beste ${esc(formatLoadFromStats(x))} × ${x.bestLoadReps}</span>`:`${x.bestWeight>0?`<span>Maks ${fmtW(x.bestWeight)} kg</span>`:''}${x.bestE1RM>0?`<span>e1RM ${x.bestE1RM.toFixed(1).replace('.',',')} kg</span>`:''}`}${x.avgRir!=null?`<span>RIR ${x.avgRir.toFixed(1).replace('.',',')}</span>`:''}</div></div>`).join(''):`<div class="empty">Ingen økter denne måneden.</div>`}</div>`;
@@ -629,7 +685,7 @@ async function renderSettings(){
   const logout=el.querySelector('#cloudLogout');if(logout)logout.onclick=()=>cloudSignOut();
   const dp=el.querySelector('#deviceProfile');if(dp)dp.onchange=()=>{cloudMeta.deviceProfileId=dp.value;state.currentProfileId=dp.value;saveCloudMeta();saveState();renderAll();};renderCloudStatus();
 }
-function renderAll(){renderProfileBar();renderPrograms();renderWorkout();renderHistory();renderProgress();renderSettings();const count=profile().sessions.length;const cloud=cloudReady&&cloudMeta.householdId?' · ☁︎ synk':' ';document.querySelector('#statusLine').textContent=state.active?`Pågående: ${state.active.name}`:`${profile().name} · ${count} lagrede økter${cloud}`;}
+function renderAll(){renderProfileBar();renderPrograms();renderWorkout();renderHistory();renderWeek();renderProgress();renderSettings();const count=profile().sessions.length;const cloud=cloudReady&&cloudMeta.householdId?' · ☁︎ synk':' ';document.querySelector('#statusLine').textContent=state.active?`Pågående: ${state.active.name}`:`${profile().name} · ${count} lagrede økter${cloud}`;}
 function installHelp(){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Installer på iPhone</h3><ol class="install-steps"><li>Åpne siden i <strong>Safari</strong>.</li><li>Trykk <strong>Del</strong>.</li><li>Velg <strong>Legg til på Hjem-skjerm</strong>.</li><li>Trykk <strong>Legg til</strong>.</li></ol><p class="muted small">Ved oppdatering på samme nettadresse beholdes localStorage-data. Ta likevel backup først.</p><button value="cancel" class="primary" style="width:100%">Lukk</button>`;m.showModal();}
 
 function initSplash(){const sp=document.querySelector('#splashScreen');if(!sp)return;const toggle=sp.querySelector('#splashToggle');if(toggle){toggle.checked=shouldShowSplash();toggle.onchange=()=>setSplashPreference(toggle.checked);}const start=sp.querySelector('#splashStart');if(start)start.onclick=()=>hideSplash(true);const open=sp.querySelector('#splashOpen');if(open)open.onclick=()=>hideSplash(false);if(!shouldShowSplash())sp.classList.add('hidden');}
