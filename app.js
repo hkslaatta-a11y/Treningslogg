@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.5';
+const APP_VERSION='2.7.6';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -649,14 +649,80 @@ function openWorkoutSetup(p,extras=[]){
         tempo:r.origin.tempo,restSeconds:r.origin.restSeconds,notes:r.origin.notes,
         bodyweight:r.origin.bodyweight,reason:r.selected?'replaced':'skipped'
       }));
+      const giant=/6\s*[–-]\s*12\s*[–-]\s*25/.test(p.name||'');
+      const picked=rows.filter(r=>r.selected);
+      if(giant){
+        const groups=new Map();
+        for(const r of picked){
+          const stage=parseGiantStage(r.item);
+          if(!stage)return toast('Velg hele 6–12–25-blokker fra A/B/C/D.');
+          if(!groups.has(stage.group))groups.set(stage.group,{positions:new Set(),rounds:new Set()});
+          groups.get(stage.group).positions.add(stage.position);
+          groups.get(stage.group).rounds.add(Math.max(1,Number(r.item.targetSets)||1));
+        }
+        if([...groups.values()].some(x=>x.positions.size!==3))return toast('Velg hele blokker med 6, 12 og 25 reps.');
+        if([...groups.values()].some(x=>x.rounds.size!==1))
+          return toast('Alle tre øvelsene i en 6–12–25-blokk må ha like mange runder.');
+      }
       state.active={id:uid(),profileId:state.currentProfileId,programID:p.id,name:p.name,
         startedAt:new Date().toISOString(),notes:'',omittedExercises,
-        exercises:rows.filter(r=>r.selected).map(r=>workoutExerciseFromPlan(r.item,r.origin))};
+        exercises:picked.map(r=>workoutExerciseFromPlan(r.item,r.origin))};
+      if(giant)state.active.giantMode={step:0};
       saveState();modal.close();setTab('workout');
     };
   };
   draw();if(!modal.open)modal.showModal();
 }
+
+const GIANT_GROUP_LABELS={A:'Bryst',B:'Rygg',C:'Skuldre',D:'Armer'};
+function parseGiantStage(ex){
+  const match=String(ex?.notes||'').match(/\b([ABCD])([123])\b/);
+  return match?{group:match[1],position:Number(match[2]),label:match[1]+match[2]}:null;
+}
+function giantSteps(workout){
+  if(!workout?.giantMode)return [];
+  const buckets=new Map();
+  for(const ex of workout.exercises||[]){
+    const stage=parseGiantStage(ex);if(!stage)continue;
+    if(!buckets.has(stage.group))buckets.set(stage.group,new Map());
+    buckets.get(stage.group).set(stage.position,ex);
+  }
+  const steps=[];
+  for(const group of ['A','B','C','D']){
+    const b=buckets.get(group);
+    if(!b||![1,2,3].every(i=>b.has(i)))continue;
+    const rounds=Math.max(1,...[1,2,3].map(i=>b.get(i).sets?.length||0));
+    for(let round=0;round<rounds;round++){
+      for(let pos=1;pos<=3;pos++){
+        const exercise=b.get(pos),set=exercise.sets?.[round];
+        if(set)steps.push({group,round:round+1,position:pos,label:group+pos,exercise,set});
+      }
+    }
+  }
+  return steps;
+}
+function currentGiantStep(a=state.active){
+  const steps=giantSteps(a);if(!steps.length)return null;
+  const idx=Math.min(steps.length-1,Math.max(0,Number(a.giantMode.step)||0));
+  return {steps,idx,...steps[idx]};
+}
+function goGiantStep(index){
+  if(!state.active?.giantMode)return;
+  const steps=giantSteps(state.active);if(!steps.length)return;
+  state.active.giantMode.step=Math.min(steps.length-1,Math.max(0,Number(index)||0));
+  saveState();renderWorkout();
+}
+function giantAdvanceAfterComplete(eid,sid){
+  if(!state.active?.giantMode)return false;
+  const step=currentGiantStep();
+  if(!step||step.exercise.id!==eid||step.set.id!==sid)return false;
+  const hasNext=step.idx+1<step.steps.length;
+  if(hasNext)state.active.giantMode.step=step.idx+1;
+  saveState();
+  if(hasNext)startTimer(step.position===3?180:10);
+  return true;
+}
+
 function addSet(eid){const e=state.active?.exercises.find(x=>x.id===eid);if(!e)return;e.sets.push(newSetForExercise(e,false));saveState();renderWorkout();}
 function removeLastSet(eid){
   const e=state.active?.exercises.find(x=>x.id===eid);if(!e||e.sets.length<=1)return;
@@ -677,7 +743,11 @@ function removeExercise(eid){
   a.exercises=a.exercises.filter(x=>x.id!==eid);saveState();renderWorkout();
 }
 function updateSet(eid,sid,key,value){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s[key]=value;if(key==='loadType'&&value==='bw')s.weight='';saveState();if(key==='loadType')renderWorkout();else updateWorkoutSummary();}
-function toggleSet(eid,sid){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s.completed=!s.completed;if(s.completed&&e.restSeconds)startTimer(e.restSeconds);saveState();renderWorkout();}
+function toggleSet(eid,sid){const e=state.active?.exercises.find(x=>x.id===eid),st=e?.sets.find(x=>x.id===sid);if(!st)return;st.completed=!st.completed;
+  const moved=st.completed&&giantAdvanceAfterComplete(eid,sid);
+  if(!moved&&st.completed&&e.restSeconds&&!state.active?.giantMode)startTimer(e.restSeconds);
+  saveState();renderWorkout();
+}
 function startTimer(sec){state.timer={end:Date.now()+sec*1000,duration:sec};saveState();tickTimer();clearInterval(timerHandle);timerHandle=setInterval(tickTimer,1000);}
 function stopTimer(){state.timer=null;saveState();clearInterval(timerHandle);timerHandle=null;renderWorkout();}
 function tickTimer(){if(!state.timer)return;const left=Math.max(0,Math.ceil((state.timer.end-Date.now())/1000)),el=document.querySelector('#timerValue');if(el)el.textContent=`${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}`;if(left<=0){stopTimer();toast('Pause ferdig');}}
@@ -828,9 +898,12 @@ function applyActiveExerciseChoice(e,name,bankItem=null){
   if(!e||!name)return;
   const item=bankItem||(state.exerciseBank||[]).find(x=>normalizedName(x.name)===normalizedName(name));
   e.name=name;
+  const inGiant=!!state.active?.giantMode&&!!parseGiantStage(e);
   if(item){
     e.bodyweight=typeof item.bodyweight==='boolean'?item.bodyweight:isBodyweightExercise(name);
-    e.targetReps=item.targetReps||e.targetReps;e.tempo=item.tempo||e.tempo;e.restSeconds=item.restSeconds??e.restSeconds;e.notes=item.notes||e.notes;
+    if(!inGiant){
+      e.targetReps=item.targetReps||e.targetReps;e.tempo=item.tempo||e.tempo;e.restSeconds=item.restSeconds??e.restSeconds;e.notes=item.notes||e.notes;
+    }
   }else e.bodyweight=isBodyweightExercise(name);
   for(const st of e.sets||[]){
     if(e.bodyweight){if(!st.loadType||st.loadType==='kg')st.loadType='bw';}
@@ -840,11 +913,24 @@ function applyActiveExerciseChoice(e,name,bankItem=null){
 }
 function renderWorkout(){
   const el=document.querySelector('#workout'),a=state.active;if(!a){el.innerHTML=`<div class="card empty"><h2>Ingen pågående økt</h2><p>Start en økt fra Program-fanen.</p></div>`;return;}
-  el.innerHTML=`${state.timer?`<div class="timer"><span>Pause</span><strong id="timerValue">0:00</strong><button class="ghost compact" id="stopTimer">Stopp</button></div>`:''}<div class="card hero"><div><span class="eyebrow">${esc(profile().name)}</span><h2>${esc(a.name)}</h2><p class="muted small">Startet ${fmtDate(a.startedAt)}</p></div><div class="right"><div class="muted small">Ekstern kg-volum</div><strong id="workoutVolume">${Math.round(volume(a)).toLocaleString('nb-NO')} kg</strong></div></div><div id="workoutExerciseList">${a.exercises.map(e=>{const sug=progressionSuggestion(e),choices=activeExerciseChoices(e),lc=lastComment(e.name),bw=isBodyweightExercise(e);return`<div class="card workout-exercise reorder-item" data-reorder-id="${e.id}"><div class="row wrap"><div class="reorder-title"><button type="button" class="drag-handle" aria-label="Dra for å endre rekkefølge">☰</button><div><h3>${esc(e.name)}</h3><div class="meta">${esc(e.targetReps||'')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${bw?' · Kroppsvekt':''}</div></div></div><div class="actions"><button type="button" class="ghost compact" data-move-up="${e.id}" aria-label="Flytt øvelsen opp">↑</button><button type="button" class="ghost compact" data-move-down="${e.id}" aria-label="Flytt øvelsen ned">↓</button><button class="text-danger" data-remove="${e.id}">Fjern</button></div></div><label class="variant">Bytt øvelse<select data-variant="${e.id}">${choices.map(x=>`<option value="${esc(x)}" ${normalizedName(x)===normalizedName(e.name)?'selected':''}>${esc(x)}</option>`).join('')}<option value="__bank__">Velg fra øvelsesbanken…</option></select></label>${lastSummary(e.name)?`<div class="last highlight">Sist: ${esc(lastSummary(e.name))}</div>`:''}${lc?`<div class="last-comment"><strong>Kommentar sist:</strong> ${esc(lc)}</div>`:''}${sug?`<div class="suggestion"><strong>${esc(sug.title)}</strong><br>${esc(sug.detail)}</div>`:''}${bw?`<div class="set-head bw"><span>#</span><span>Type</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>`:`<div class="set-head"><span>#</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>`}${e.sets.map((st,i)=>bw?`<div class="set-row bw"><span>${i+1}</span><select data-e="${e.id}" data-s="${st.id}" data-k="loadType"><option value="bw" ${inferredLoadType(st,e)==='bw'?'selected':''}>KV</option><option value="bw_plus" ${inferredLoadType(st,e)==='bw_plus'?'selected':''}>+kg</option><option value="bw_assist" ${inferredLoadType(st,e)==='bw_assist'?'selected':''}>−kg</option></select><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="weight" value="${inferredLoadType(st,e)==='bw'?'':esc(st.weight)}" placeholder="${inferredLoadType(st,e)==='bw'?'—':'kg'}" ${inferredLoadType(st,e)==='bw'?'disabled':''}><input inputmode="numeric" data-e="${e.id}" data-s="${st.id}" data-k="reps" value="${esc(st.reps)}"><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="rir" value="${esc(st.rir)}"><button class="check ${st.completed?'done':''}" data-check-e="${e.id}" data-check-s="${st.id}">${st.completed?'✓':'○'}</button></div>`:`<div class="set-row"><span>${i+1}</span><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="weight" value="${esc(st.weight)}"><input inputmode="numeric" data-e="${e.id}" data-s="${st.id}" data-k="reps" value="${esc(st.reps)}"><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="rir" value="${esc(st.rir)}"><button class="check ${st.completed?'done':''}" data-check-e="${e.id}" data-check-s="${st.id}">${st.completed?'✓':'○'}</button></div>`).join('')}<div class="actions wrap"><button class="ghost compact" data-addset="${e.id}">+ Sett</button><button type="button" class="ghost compact" data-removeset="${e.id}" ${e.sets.length<=1?'disabled':''}>− Siste sett</button></div><label class="exercise-comment">Kommentar til øvelsen<textarea data-ex-comment="${e.id}" placeholder="F.eks. god kontroll, skulderen kjentes bra, tempo brøt på siste sett …">${esc(e.comment||'')}</textarea></label></div>`}).join('')}</div><div class="card"><button class="ghost" id="addExercise">+ Engangsøvelse</button><label>Øktnotat<textarea id="workoutNotes" placeholder="Hvordan føltes økten?">${esc(a.notes||'')}</textarea></label><div class="grid2"><button class="danger" id="cancelWorkout">Avbryt</button><button class="primary" id="finishWorkout">Lagre økt</button></div></div>`;
+  const giant=currentGiantStep(a);
+  const giantPanel=giant?`<div class="card giant-panel">
+    <div class="row wrap"><span class="eyebrow">6–12–25 · ${esc(GIANT_GROUP_LABELS[giant.group])}</span><span class="tag">Steg ${giant.idx+1}/${giant.steps.length}</span></div>
+    <h3>${esc(giant.label)} · ${esc(giant.exercise.name)} · ${esc(giant.exercise.targetReps)} reps</h3>
+    <p class="muted small">Runde ${giant.round} · Registrer vekt/reps på sett ${giant.round}, og trykk ✓ for neste steg. ${giant.position===3?'Deretter 2–3 min pause.':'Deretter 10 sek pause.'}</p>
+    <div class="giant-progress" aria-label="6–12–25-steg">${giant.steps.map((x,i)=>`<button type="button" class="giant-step ${i===giant.idx?'current':''} ${x.set.completed?'done':''}" data-giant-step="${i}" aria-label="${esc(x.label)} runde ${x.round}">${esc(x.label)}<small>${x.round}</small></button>`).join('')}</div>
+    <div class="row wrap"><button type="button" class="ghost compact" id="giantPrev" ${giant.idx===0?'disabled':''}>← Forrige</button><button type="button" class="ghost compact" id="giantNext" ${giant.idx===giant.steps.length-1?'disabled':''}>Neste →</button></div>
+    <p class="muted small">Navigering endrer bare visningen, ikke de loggede settene. Du kan bytte øvelse fra banken på kortet nedenfor.</p>
+  </div>`:'';
+  el.innerHTML=`${giantPanel}${state.timer?`<div class="timer"><span>Pause</span><strong id="timerValue">0:00</strong><button class="ghost compact" id="stopTimer">Stopp</button></div>`:''}<div class="card hero"><div><span class="eyebrow">${esc(profile().name)}</span><h2>${esc(a.name)}</h2><p class="muted small">Startet ${fmtDate(a.startedAt)}</p></div><div class="right"><div class="muted small">Ekstern kg-volum</div><strong id="workoutVolume">${Math.round(volume(a)).toLocaleString('nb-NO')} kg</strong></div></div><div id="workoutExerciseList">${a.exercises.map(e=>{const sug=progressionSuggestion(e),choices=activeExerciseChoices(e),lc=lastComment(e.name),bw=isBodyweightExercise(e);return`<div class="card workout-exercise reorder-item" data-reorder-id="${e.id}" ${giant&&e.id!==giant.exercise.id?'hidden':''}><div class="row wrap"><div class="reorder-title">${giant?'':`<button type="button" class="drag-handle" aria-label="Dra for å endre rekkefølge">☰</button>`}<div><h3>${esc(e.name)}</h3><div class="meta">${esc(e.targetReps||'')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${bw?' · Kroppsvekt':''}</div></div></div>${giant?'':`<div class="actions"><button type="button" class="ghost compact" data-move-up="${e.id}" aria-label="Flytt øvelsen opp">↑</button><button type="button" class="ghost compact" data-move-down="${e.id}" aria-label="Flytt øvelsen ned">↓</button><button class="text-danger" data-remove="${e.id}">Fjern</button></div>`}</div><label class="variant">Bytt øvelse<select data-variant="${e.id}">${choices.map(x=>`<option value="${esc(x)}" ${normalizedName(x)===normalizedName(e.name)?'selected':''}>${esc(x)}</option>`).join('')}<option value="__bank__">Velg fra øvelsesbanken…</option></select></label>${lastSummary(e.name)?`<div class="last highlight">Sist: ${esc(lastSummary(e.name))}</div>`:''}${lc?`<div class="last-comment"><strong>Kommentar sist:</strong> ${esc(lc)}</div>`:''}${sug?`<div class="suggestion"><strong>${esc(sug.title)}</strong><br>${esc(sug.detail)}</div>`:''}${bw?`<div class="set-head bw"><span>#</span><span>Type</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>`:`<div class="set-head"><span>#</span><span>kg</span><span>reps</span><span>RIR</span><span>✓</span></div>`}${e.sets.map((st,i)=>bw?`<div class="set-row bw" ${giant&&e.id===giant.exercise.id&&i!==giant.round-1?'hidden':''}><span>${i+1}</span><select data-e="${e.id}" data-s="${st.id}" data-k="loadType"><option value="bw" ${inferredLoadType(st,e)==='bw'?'selected':''}>KV</option><option value="bw_plus" ${inferredLoadType(st,e)==='bw_plus'?'selected':''}>+kg</option><option value="bw_assist" ${inferredLoadType(st,e)==='bw_assist'?'selected':''}>−kg</option></select><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="weight" value="${inferredLoadType(st,e)==='bw'?'':esc(st.weight)}" placeholder="${inferredLoadType(st,e)==='bw'?'—':'kg'}" ${inferredLoadType(st,e)==='bw'?'disabled':''}><input inputmode="numeric" data-e="${e.id}" data-s="${st.id}" data-k="reps" value="${esc(st.reps)}"><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="rir" value="${esc(st.rir)}"><button class="check ${st.completed?'done':''}" data-check-e="${e.id}" data-check-s="${st.id}">${st.completed?'✓':'○'}</button></div>`:`<div class="set-row" ${giant&&e.id===giant.exercise.id&&i!==giant.round-1?'hidden':''}><span>${i+1}</span><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="weight" value="${esc(st.weight)}"><input inputmode="numeric" data-e="${e.id}" data-s="${st.id}" data-k="reps" value="${esc(st.reps)}"><input inputmode="decimal" data-e="${e.id}" data-s="${st.id}" data-k="rir" value="${esc(st.rir)}"><button class="check ${st.completed?'done':''}" data-check-e="${e.id}" data-check-s="${st.id}">${st.completed?'✓':'○'}</button></div>`).join('')}${giant?'':`<div class="actions wrap"><button class="ghost compact" data-addset="${e.id}">+ Sett</button><button type="button" class="ghost compact" data-removeset="${e.id}" ${e.sets.length<=1?'disabled':''}>− Siste sett</button></div>`}<label class="exercise-comment">Kommentar til øvelsen<textarea data-ex-comment="${e.id}" placeholder="F.eks. god kontroll, skulderen kjentes bra, tempo brøt på siste sett …">${esc(e.comment||'')}</textarea></label></div>`}).join('')}</div><div class="card">${giant?'':'<button class="ghost" id="addExercise">+ Engangsøvelse</button>'}<label>Øktnotat<textarea id="workoutNotes" placeholder="Hvordan føltes økten?">${esc(a.notes||'')}</textarea></label><div class="grid2"><button class="danger" id="cancelWorkout">Avbryt</button><button class="primary" id="finishWorkout">Lagre økt</button></div></div>`;
+  el.querySelectorAll('[data-giant-step]').forEach(b=>b.onclick=()=>goGiantStep(Number(b.dataset.giantStep)));
+  const gp=el.querySelector('#giantPrev'),gn=el.querySelector('#giantNext');
+  if(gp)gp.onclick=()=>goGiantStep(giant.idx-1);
+  if(gn)gn.onclick=()=>goGiantStep(giant.idx+1);
   el.querySelectorAll('[data-e][data-k]').forEach(x=>{const handler=()=>updateSet(x.dataset.e,x.dataset.s,x.dataset.k,x.value);x.oninput=handler;x.onchange=handler;});
   el.querySelectorAll('[data-check-e]').forEach(b=>b.onclick=()=>toggleSet(b.dataset.checkE,b.dataset.checkS));el.querySelectorAll('[data-addset]').forEach(b=>b.onclick=()=>addSet(b.dataset.addset));el.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>removeExercise(b.dataset.remove));el.querySelectorAll('[data-removeset]').forEach(b=>b.onclick=()=>removeLastSet(b.dataset.removeset));el.querySelectorAll('[data-move-up],[data-move-down]').forEach(b=>b.onclick=()=>{const i=a.exercises.findIndex(e=>e.id===(b.dataset.moveUp||b.dataset.moveDown)),step=b.dataset.moveUp?-1:1;if(i<0||i+step<0||i+step>=a.exercises.length)return;[a.exercises[i],a.exercises[i+step]]=[a.exercises[i+step],a.exercises[i]];saveState();renderWorkout();});el.querySelectorAll('[data-ex-comment]').forEach(x=>x.oninput=()=>updateExerciseComment(x.dataset.exComment,x.value));
   el.querySelectorAll('[data-variant]').forEach(x=>x.onchange=()=>{const e=a.exercises.find(e=>e.id===x.dataset.variant);if(!e)return;if(x.value==='__bank__'){x.value=e.name;openBankPicker(item=>applyActiveExerciseChoice(e,item.name,item));return;}applyActiveExerciseChoice(e,x.value);});
-  const stop=el.querySelector('#stopTimer');if(stop)stop.onclick=stopTimer;el.querySelector('#workoutNotes').oninput=e=>{a.notes=e.target.value;saveState();};el.querySelector('#cancelWorkout').onclick=()=>{if(confirm('Avbryte pågående økt?')){state.active=null;state.timer=null;saveState();renderAll();}};el.querySelector('#finishWorkout').onclick=finishWorkout;el.querySelector('#addExercise').onclick=()=>openBankPicker(item=>{const ex={...clone(item),id:uid(),sourceExerciseID:null,originalName:item.name,comment:'',sets:Array.from({length:Number(item.targetSets)||3},()=>newSetForExercise(item,false))};a.exercises.push(ex);saveState();renderWorkout();},{allowCreate:true});enableReorder(el.querySelector('#workoutExerciseList'),'.workout-exercise','.drag-handle',ids=>{const byId=new Map(a.exercises.map(e=>[String(e.id),e]));a.exercises=ids.map(id=>byId.get(String(id))).filter(Boolean);saveState();renderWorkout();});if(state.timer)tickTimer();
+  const stop=el.querySelector('#stopTimer');if(stop)stop.onclick=stopTimer;el.querySelector('#workoutNotes').oninput=e=>{a.notes=e.target.value;saveState();};el.querySelector('#cancelWorkout').onclick=()=>{if(confirm('Avbryte pågående økt?')){state.active=null;state.timer=null;saveState();renderAll();}};el.querySelector('#finishWorkout').onclick=finishWorkout;if(el.querySelector('#addExercise'))el.querySelector('#addExercise').onclick=()=>openBankPicker(item=>{const ex={...clone(item),id:uid(),sourceExerciseID:null,originalName:item.name,comment:'',sets:Array.from({length:Number(item.targetSets)||3},()=>newSetForExercise(item,false))};a.exercises.push(ex);saveState();renderWorkout();},{allowCreate:true});if(!giant)enableReorder(el.querySelector('#workoutExerciseList'),'.workout-exercise','.drag-handle',ids=>{const byId=new Map(a.exercises.map(e=>[String(e.id),e]));a.exercises=ids.map(id=>byId.get(String(id))).filter(Boolean);saveState();renderWorkout();});if(state.timer)tickTimer();
 }
 function updateWorkoutSummary(){const el=document.querySelector('#workoutVolume');if(el&&state.active)el.textContent=`${Math.round(volume(state.active)).toLocaleString('nb-NO')} kg`;}
 function openAddExercise(){const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Engangsøvelse</h3><p class="muted small">Legges bare til i dagens økt og endrer ikke programmalen.</p><div class="stack"><label>Navn<input id="xName" placeholder="F.eks. Face pull"></label><div class="grid2"><label>Sett<input id="xSets" type="number" min="1" value="3"></label><label>Reps<input id="xReps" value="8–12"></label></div><div class="grid2"><label>Tempo<input id="xTempo"></label><label>Pause (sek)<input id="xRest" type="number" min="0" value="120"></label></div><label>RIR / notat<input id="xNotes" value="RIR 1–2"></label><div class="grid2"><button value="cancel" class="ghost">Avbryt</button><button type="button" class="primary" id="saveExtra">Legg til</button></div></div>`;m.showModal();b.querySelector('#saveExtra').onclick=()=>{const name=b.querySelector('#xName').value.trim();if(!name)return toast('Skriv navn på øvelsen');const n=Math.max(1,+b.querySelector('#xSets').value||3);state.active.exercises.push({id:uid(),name,originalName:name,targetReps:b.querySelector('#xReps').value.trim(),tempo:b.querySelector('#xTempo').value.trim(),restSeconds:Math.max(0,+b.querySelector('#xRest').value||0),notes:b.querySelector('#xNotes').value.trim(),comment:'',alternatives:[],sets:Array.from({length:n},()=>({id:uid(),weight:'',reps:'',rir:'',completed:false}))});saveState();m.close();renderWorkout();};}
@@ -1049,4 +1135,4 @@ document.addEventListener('click',e=>{
     p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
   });
 });
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.5').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.6').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
