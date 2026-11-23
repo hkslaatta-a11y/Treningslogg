@@ -656,10 +656,13 @@ function openWorkoutSetup(p,extras=[]){
         for(const r of picked){
           const stage=parseGiantStage(r.item);
           if(!stage)return toast('Velg hele 6–12–25-blokker fra A/B/C/D.');
-          if(!groups.has(stage.group))groups.set(stage.group,new Set());
-          groups.get(stage.group).add(stage.position);
+          if(!groups.has(stage.group))groups.set(stage.group,{positions:new Set(),rounds:new Set()});
+          groups.get(stage.group).positions.add(stage.position);
+          groups.get(stage.group).rounds.add(Math.max(1,Number(r.item.targetSets)||1));
         }
-        if([...groups.values()].some(x=>x.size!==3))return toast('Velg hele blokker med 6, 12 og 25 reps.');
+        if([...groups.values()].some(x=>x.positions.size!==3))return toast('Velg hele blokker med 6, 12 og 25 reps.');
+        if([...groups.values()].some(x=>x.rounds.size!==1))
+          return toast('Alle tre øvelsene i en 6–12–25-blokk må ha like mange runder.');
       }
       state.active={id:uid(),profileId:state.currentProfileId,programID:p.id,name:p.name,
         startedAt:new Date().toISOString(),notes:'',omittedExercises,
