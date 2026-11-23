@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.4';
+const APP_VERSION='2.7.5';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -74,16 +74,45 @@ const meBonusTemplate={
 };
 const me61225Template={
   name:'6–12–25 · VALGFRI',
-  notes:'Valgfri alternativ økt, ikke et tillegg til A/B/C. To runder per blokk: A1→A2→A3, så B1→B2→B3. Ca. 10 sek mellom øvelser, 2–3 min etter A3/B3. Start med RIR 2–3, stopp ved teknikkfall. Appen viser øvelser enkeltvis – bytt mellom dem manuelt per runde.',
+  notes:'Valgfri alternativ økt, ikke et tillegg til A/B/C. Velg helst 1–2 muskelgrupper per økt. Bryst A, rygg B, skuldre C og armer D. Gjør A1→A2→A3 (eller B/C/D) i 2 runder. Ca. 10 sek mellom øvelser, 2–3 min etter den tredje. Start med RIR 2–3, stopp ved teknikkfall. Appen viser øvelser enkeltvis – bytt mellom dem manuelt per runde.',
   exercises:[
     ['Smith benkpress',2,'6','kontrollert',10,'BRYST A1 · tung, RIR 2–3 · gå direkte til A2',false,[]],
     ['Incline Smith press',2,'12','kontrollert',10,'BRYST A2 · moderat, RIR 2–3 · gå til A3',false,[]],
     ['Cable flyes',2,'25','kontrollert',180,'BRYST A3 · lett, RIR 2–3 · 2–3 min pause før neste runde',false,[]],
     ['Weighted pull-ups',2,'6','kontrollert',10,'RYGG B1 · RIR 2–3, bruk assistanse ved behov · gå til B2',false,['Pull-ups']],
     ['Chest-supported row',2,'12','kontrollert',10,'RYGG B2 · moderat, RIR 2–3 · gå til B3',false,[]],
-    ['Straight-arm cable pulldown',2,'25','kontrollert',180,'RYGG B3 · lett, RIR 2–3 · 2–3 min pause før neste runde',false,[]]
+    ['Straight-arm cable pulldown',2,'25','kontrollert',180,'RYGG B3 · lett, RIR 2–3 · 2–3 min pause før neste runde',false,[]],
+    ['DB shoulder press',2,'6','kontrollert',10,'SKULDRE C1 · tung, RIR 2–3 · gå til C2',true,['Skulderpress']],
+    ['Sidehev',2,'12','kontrollert',10,'SKULDRE C2 · moderat, RIR 2–3 · gå til C3',true,[]],
+    ['Rear-delt cable fly',2,'25','kontrollert',180,'SKULDRE C3 · lett, RIR 2–3 · 2–3 min pause',true,[]],
+    ['Weighted dips',2,'6','kontrollert',10,'ARMER D1 · tung triceps, RIR 2–3 · gå til D2',true,['Smal benkpress']],
+    ['EZ-curl',2,'12','kontrollert',10,'ARMER D2 · moderat biceps, RIR 2–3 · gå til D3',true,['Cable hammer curl']],
+    ['Enarms cable triceps extension',2,'25','kontrollert',180,'ARMER D3 · lett triceps, RIR 2–3 · 2–3 min pause',true,[]]
   ]
 };
+function canExtend61225(pr){
+  if(!pr||!/6\s*[–-]\s*12\s*[–-]\s*25/.test(pr.name||''))return false;
+  const existing=pr.exercises||[];
+  return me61225Template.exercises.slice(6).some((e,i)=>
+    !existing.some(x=>x.id===`61225-h-p0e${i+6}`||normalizedName(x.name)===normalizedName(e[0])));
+}
+function extend61225(pr){
+  if(!canExtend61225(pr))return false;
+  // Behold alle egne bytter, rekkefølgeendringer og eksisterende sett.
+  const additions=makePrograms([me61225Template],'61225-h-')[0].exercises.slice(6);
+  let inserted=0;
+  for(const e of additions){
+    if((pr.exercises||[]).some(x=>x.id===e.id||normalizedName(x.name)===normalizedName(e.name)))continue;
+    pr.exercises=pr.exercises||[];
+    pr.exercises.push(e);inserted++;
+  }
+  if(inserted){
+    const note='Skuldre C og armer D er valgfrie blokker. Velg vanligvis 1–2 muskelgrupper per økt; ikke alle fire.';
+    if(!String(pr.notes||'').includes('Skuldre C og armer D'))pr.notes=String(pr.notes||'')+' '+note;
+    ensureExerciseBank(state);saveState();
+  }
+  return inserted>0;
+}
 function optionalProgramExists(p,kind){
   return (p?.programs||[]).some(x=>kind==='bonus'?/bonus/i.test(x.name||''):/6\s*[–-]\s*12\s*[–-]\s*25/.test(x.name||''));
 }
@@ -597,7 +626,16 @@ function openWorkoutSetup(p,extras=[]){
     body.querySelectorAll('[data-setup-del]').forEach(x=>x.onclick=()=>{rows.splice(+x.dataset.setupDel,1);draw();});
     body.querySelectorAll('[data-setup-swap]').forEach(x=>x.onclick=()=>{
       const idx=+x.dataset.setupSwap;
-      openBankPicker(item=>{rows[idx].item={...clone(item),targetSets:rows[idx].item.targetSets};rows[idx].selected=true;draw();if(!modal.open)modal.showModal();},{allowCreate:true,onCancel:()=>{draw();if(!modal.open)modal.showModal();}});
+      openBankPicker(item=>{
+        if(/6\s*[–-]\s*12\s*[–-]\s*25/.test(p.name||'')){
+          // Behold metoden selv om en øvelse byttes i øktplanleggingen.
+          const old=rows[idx].item;
+          rows[idx].item={...clone(item),id:old.id,name:item.name,bodyweight:!!item.bodyweight,
+            targetSets:old.targetSets,targetReps:old.targetReps,tempo:old.tempo,
+            restSeconds:old.restSeconds,notes:old.notes,optional:old.optional};
+        }else rows[idx].item={...clone(item),targetSets:rows[idx].item.targetSets};
+        rows[idx].selected=true;draw();if(!modal.open)modal.showModal();
+      },{allowCreate:true,onCancel:()=>{draw();if(!modal.open)modal.showModal();}});
     });
     body.querySelector('#setupAdd').onclick=()=>openBankPicker(item=>{
       rows.push({origin:null,item:{...clone(item),id:uid()},selected:true,extra:true,suggested:false});
@@ -752,15 +790,27 @@ function openExerciseBankEditor(id,onSaved,onCancel=null){
   b.querySelector('#bankEditorClose').onclick=()=>onCancel?onCancel():openExerciseBank();
    b.querySelector('#beSave').onclick=()=>{const name=b.querySelector('#beName').value.trim();if(!name)return toast('Skriv navn på øvelsen');const item={id:e.id,name,targetSets:Math.max(1,+b.querySelector('#beSets').value||3),targetReps:b.querySelector('#beReps').value.trim(),tempo:b.querySelector('#beTempo').value.trim(),restSeconds:Math.max(0,+b.querySelector('#beRest').value||0),notes:b.querySelector('#beNotes').value.trim(),bodyweight:b.querySelector('#beBw').checked,muscleGroup:b.querySelector('#beMuscle').value,equipment:b.querySelector('#beBw').checked?'Kroppsvekt':b.querySelector('#beEquipment').value,alternatives:b.querySelector('#beAlts').value.split(',').map(x=>x.trim()).filter(Boolean)};const duplicate=(state.exerciseBank||[]).find(x=>x.id!==item.id&&normalizedName(x.name)===normalizedName(item.name));if(duplicate)return toast('Denne øvelsen finnes allerede i banken');const idx=(state.exerciseBank||[]).findIndex(x=>x.id===item.id);if(idx>=0)state.exerciseBank[idx]=item;else state.exerciseBank.push(item);state.exerciseBank.sort((a,b)=>a.name.localeCompare(b.name,'nb'));saveState();m.close();toast('Øvelse lagret i banken');if(onSaved)onSaved(clone(item));};if(!m.open)m.showModal();
 }
-function renderPrograms(){const el=document.querySelector('#programs'),p=profile();const offerBonus=p.id==='me'&&!optionalProgramExists(p,'bonus');const offer61225=p.id==='me'&&!optionalProgramExists(p,'61225');el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(p.name)}</span><h2>Treningsprogram</h2><p class="muted small">Programmet kan redigeres direkte på telefonen. Endringer synkroniseres til Supabase og den andre telefonen.</p></div><button class="ghost compact" id="newProgram">+ Nytt program</button></div>${p.id==='me'?(offerBonus||offer61225?`<div class="card"><h3>Valgfrie økter</h3><p class="muted small">Disse legges til uten å endre A/B/C eller tidligere treningsøkter.</p><div class="actions">${offerBonus?'<button type="button" class="ghost compact" id="installMeBonus">+ BONUSØKT</button>':''}${offer61225?'<button type="button" class="ghost compact" id="install61225">+ 6–12–25</button>':''}</div></div>`:'') :''}<div class="card exercise-bank-card"><div class="row wrap"><div><span class="eyebrow">Felles for begge profiler</span><h3>Øvelsesbank</h3><p class="muted small">${(state.exerciseBank||[]).length} øvelser. Legg til nye øvelser én gang og bruk dem i hvilket som helst program.</p></div><button class="primary compact" id="openExerciseBank">Åpne bank</button></div></div><div class="card program-tools"><div class="row wrap"><div><h3>Programverktøy</h3><p class="muted small">Eksporter, importer eller gå tilbake til appens originalmal uten å påvirke treningshistorikken.</p></div></div><div class="program-tool-grid"><button class="ghost" id="exportPrograms">Eksporter program</button><label class="file-label program-import">Importer program<input type="file" id="importPrograms" accept="application/json,.json"></label><button class="danger" id="resetPrograms">Tilbakestill til original</button></div></div>${p.programs.map(pr=>`<div class="card program-card"><div class="row wrap"><div><h3>${esc(pr.name)}</h3><div class="muted small">${pr.exercises.filter(e=>!e.optional).length} faste · ${pr.exercises.filter(e=>e.optional).length} valgfrie</div></div><div class="actions"><button class="ghost compact" data-edit-program="${pr.id}">Rediger</button><button class="primary compact" data-start="${pr.id}">Start</button></div></div><p class="muted small">${esc(pr.notes)}</p>${pr.exercises.map(e=>`<div class="exercise"><div class="exercise-title">${esc(e.name)} ${e.optional?'<span class="tag">Valgfri</span>':''} ${isBodyweightExercise(e)?'<span class="tag bw-tag">KV</span>':''}</div><div class="meta">${e.targetSets} × ${esc(e.targetReps||'–')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${e.alternatives?.length?` · Alt: ${esc(e.alternatives.join(' / '))}`:''}</div><div class="last">${lastSummary(e.name)?`Sist: ${esc(lastSummary(e.name))}`:'Ingen tidligere logg'}</div></div>`).join('')}</div>`).join('')}`;
+function renderPrograms(){const el=document.querySelector('#programs'),p=profile();const offerBonus=p.id==='me'&&!optionalProgramExists(p,'bonus');const offer61225=p.id==='me'&&!optionalProgramExists(p,'61225');const existing61225=(p.programs||[]).find(pr=>/6\s*[–-]\s*12\s*[–-]\s*25/.test(pr.name||''));const offer61225Extension=p.id==='me'&&canExtend61225(existing61225);el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(p.name)}</span><h2>Treningsprogram</h2><p class="muted small">Programmet kan redigeres direkte på telefonen. Endringer synkroniseres til Supabase og den andre telefonen.</p></div><button class="ghost compact" id="newProgram">+ Nytt program</button></div>${p.id==='me'?(offerBonus||offer61225||offer61225Extension?`<div class="card"><h3>Valgfrie økter</h3><p class="muted small">Disse legges til uten å endre A/B/C eller tidligere treningsøkter.</p><div class="actions">${offerBonus?'<button type="button" class="ghost compact" id="installMeBonus">+ BONUSØKT</button>':''}${offer61225?'<button type="button" class="ghost compact" id="install61225">+ 6–12–25</button>':''}${offer61225Extension?'<button type="button" class="ghost compact" id="extend61225">+ Skuldre og armer i 6–12–25</button>':''}</div></div>`:'') :''}<div class="card exercise-bank-card"><div class="row wrap"><div><span class="eyebrow">Felles for begge profiler</span><h3>Øvelsesbank</h3><p class="muted small">${(state.exerciseBank||[]).length} øvelser. Legg til nye øvelser én gang og bruk dem i hvilket som helst program.</p></div><button class="primary compact" id="openExerciseBank">Åpne bank</button></div></div><div class="card program-tools"><div class="row wrap"><div><h3>Programverktøy</h3><p class="muted small">Eksporter, importer eller gå tilbake til appens originalmal uten å påvirke treningshistorikken.</p></div></div><div class="program-tool-grid"><button class="ghost" id="exportPrograms">Eksporter program</button><label class="file-label program-import">Importer program<input type="file" id="importPrograms" accept="application/json,.json"></label><button class="danger" id="resetPrograms">Tilbakestill til original</button></div></div>${p.programs.map(pr=>`<div class="card program-card"><div class="row wrap"><div><h3>${esc(pr.name)}</h3><div class="muted small">${pr.exercises.filter(e=>!e.optional).length} faste · ${pr.exercises.filter(e=>e.optional).length} valgfrie</div></div><div class="actions"><button class="ghost compact" data-edit-program="${pr.id}">Rediger</button><button class="primary compact" data-start="${pr.id}">Start</button></div></div><p class="muted small">${esc(pr.notes)}</p>${pr.exercises.map(e=>`<div class="exercise"><div class="exercise-title">${esc(e.name)} ${e.optional?'<span class="tag">Valgfri</span>':''} ${isBodyweightExercise(e)?'<span class="tag bw-tag">KV</span>':''}</div><div class="meta">${e.targetSets} × ${esc(e.targetReps||'–')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${e.alternatives?.length?` · Alt: ${esc(e.alternatives.join(' / '))}`:''}</div><div class="last">${lastSummary(e.name)?`Sist: ${esc(lastSummary(e.name))}`:'Ingen tidligere logg'}</div></div>`).join('')}</div>`).join('')}`;
   const installBonus=el.querySelector('#installMeBonus');if(installBonus)installBonus.onclick=()=>{addOptionalProgram('bonus');renderAll();toast('BONUSØKT lagt til. Du kan nå hente øvelser fra Uke.');};
+  const extensionButton=el.querySelector('#extend61225');if(extensionButton)extensionButton.onclick=()=>{if(extend61225(existing61225)){renderAll();toast('Skuldre og armer lagt til som valgfrie blokker.');}};
   const install61225=el.querySelector('#install61225');if(install61225)install61225.onclick=()=>{addOptionalProgram('61225');renderAll();toast('6–12–25 er lagt til som valgfritt alternativ.');};
   el.querySelector('#openExerciseBank').onclick=openExerciseBank;el.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>openWorkoutSetup(p.programs.find(x=>x.id===b.dataset.start)));el.querySelectorAll('[data-edit-program]').forEach(b=>b.onclick=()=>openProgramEditor(b.dataset.editProgram));el.querySelector('#newProgram').onclick=()=>openProgramEditor(null);el.querySelector('#exportPrograms').onclick=exportPrograms;el.querySelector('#importPrograms').onchange=importPrograms;el.querySelector('#resetPrograms').onclick=resetProgramsToOriginal;
 }
 function openProgramEditor(programId,restore=null){
   const p=profile(),pr=programId?p.programs.find(x=>x.id===programId):{id:uid(),name:'Nytt program',notes:'',exercises:[]};const m=document.querySelector('#modal'),b=document.querySelector('#modalBody');b.innerHTML=`<h3>Rediger program</h3><div class="stack"><label>Navn<input id="peName" value="${esc(restore?.name??pr.name)}"></label><label>Notat<textarea id="peNotes">${esc(restore?.notes??pr.notes??'')}</textarea></label><div id="peExercises"></div><button type="button" class="ghost" id="peAddBank">+ Velg fra søkbar øvelsesbank</button><button type="button" class="ghost" id="peAdd">+ Ny øvelse</button><div class="grid2"><button value="cancel" class="ghost">Avbryt</button><button type="button" class="primary" id="peSave">Lagre</button></div>${programId?'<button type="button" class="danger" id="peDelete">Slett program</button>':''}</div>`;m.showModal();const rows=b.querySelector('#peExercises');let draft=clone(restore?.exercises||pr.exercises||[]).map(e=>({...e,bodyweight:typeof e.bodyweight==='boolean'?e.bodyweight:isBodyweightExercise(e.name)}));
-  function draw(){rows.innerHTML=draft.map((e,i)=>`<div class="editor-row reorder-item" data-reorder-id="${e.id}"><div class="row"><div class="reorder-title"><button type="button" class="drag-handle" aria-label="Dra for å endre rekkefølge">☰</button><strong>${i+1}. ${esc(e.name||'Ny øvelse')}</strong></div><div class="actions"><button type="button" class="text-danger" data-rm="${i}">Fjern</button></div></div><label>Øvelse<input data-i="${i}" data-k="name" value="${esc(e.name||'')}"></label><div class="grid3"><label>Sett<input type="number" min="1" data-i="${i}" data-k="targetSets" value="${e.targetSets||3}"></label><label>Reps<input data-i="${i}" data-k="targetReps" value="${esc(e.targetReps||'')}"></label><label>Pause<input type="number" min="0" data-i="${i}" data-k="restSeconds" value="${e.restSeconds??120}"></label></div><div class="grid2"><label>Tempo<input data-i="${i}" data-k="tempo" value="${esc(e.tempo||'')}"></label><label>RIR / notat<input data-i="${i}" data-k="notes" value="${esc(e.notes||'')}"></label></div><label>Alternative øvelser <span class="muted small">(kommaseparert)</span><input data-i="${i}" data-k="alternativesText" value="${esc((e.alternatives||[]).join(', '))}"></label><label class="toggle-row"><input type="checkbox" data-i="${i}" data-k="bodyweight" ${e.bodyweight?'checked':''}><span><strong>Kroppsvektøvelse</strong><small>Logger KV, +kg eller −kg/assistanse i stedet for vanlig kg.</small></span></label><label class="toggle-row"><input type="checkbox" data-i="${i}" data-k="optional" ${e.optional?'checked':''}><span>Valgfri øvelse</span></label></div>`).join('');
+  function draw(){rows.innerHTML=draft.map((e,i)=>`<div class="editor-row reorder-item" data-reorder-id="${e.id}"><div class="row"><div class="reorder-title"><button type="button" class="drag-handle" aria-label="Dra for å endre rekkefølge">☰</button><strong>${i+1}. ${esc(e.name||'Ny øvelse')}</strong></div><div class="actions"><button type="button" class="ghost compact" data-pe-swap="${i}">Bytt fra bank</button><button type="button" class="text-danger" data-rm="${i}">Fjern</button></div></div><label>Øvelse<input data-i="${i}" data-k="name" value="${esc(e.name||'')}"></label><div class="grid3"><label>Sett<input type="number" min="1" data-i="${i}" data-k="targetSets" value="${e.targetSets||3}"></label><label>Reps<input data-i="${i}" data-k="targetReps" value="${esc(e.targetReps||'')}"></label><label>Pause<input type="number" min="0" data-i="${i}" data-k="restSeconds" value="${e.restSeconds??120}"></label></div><div class="grid2"><label>Tempo<input data-i="${i}" data-k="tempo" value="${esc(e.tempo||'')}"></label><label>RIR / notat<input data-i="${i}" data-k="notes" value="${esc(e.notes||'')}"></label></div><label>Alternative øvelser <span class="muted small">(kommaseparert)</span><input data-i="${i}" data-k="alternativesText" value="${esc((e.alternatives||[]).join(', '))}"></label><label class="toggle-row"><input type="checkbox" data-i="${i}" data-k="bodyweight" ${e.bodyweight?'checked':''}><span><strong>Kroppsvektøvelse</strong><small>Logger KV, +kg eller −kg/assistanse i stedet for vanlig kg.</small></span></label><label class="toggle-row"><input type="checkbox" data-i="${i}" data-k="optional" ${e.optional?'checked':''}><span>Valgfri øvelse</span></label></div>`).join('');
     rows.querySelectorAll('input').forEach(inp=>inp.oninput=()=>{const i=+inp.dataset.i,k=inp.dataset.k;if(!k)return;if(k==='optional'||k==='bodyweight')draft[i][k]=inp.checked;else if(k==='targetSets'||k==='restSeconds')draft[i][k]=Number(inp.value)||0;else if(k==='alternativesText')draft[i].alternatives=inp.value.split(',').map(x=>x.trim()).filter(Boolean);else draft[i][k]=inp.value;});
+    rows.querySelectorAll('[data-pe-swap]').forEach(x=>x.onclick=()=>{
+      const i=+x.dataset.peSwap;
+      const snapshot=()=>({name:b.querySelector('#peName').value,notes:b.querySelector('#peNotes').value,exercises:clone(draft)});
+      const saved=snapshot(),original=clone(draft[i]);
+      openBankPicker(item=>{
+        // Bytt kun ovelsesnavn/type. Behold 6/12/25, sett, pause, gruppenotat og valgfrihet.
+        saved.exercises[i]={...original,name:item.name,bodyweight:!!item.bodyweight,
+          alternatives:clone(item.alternatives||[])};
+        openProgramEditor(programId,saved);
+      },{allowCreate:true,onCancel:()=>openProgramEditor(programId,saved)});
+    });
     rows.querySelectorAll('[data-rm]').forEach(x=>x.onclick=()=>{draft.splice(+x.dataset.rm,1);draw();});enableReorder(rows,'.reorder-item','.drag-handle',ids=>{const byId=new Map(draft.map(e=>[String(e.id),e]));draft=ids.map(id=>byId.get(String(id))).filter(Boolean);draw();});
   }
   draw();b.querySelector('#peAddBank').onclick=()=>{
@@ -999,4 +1049,4 @@ document.addEventListener('click',e=>{
     p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
   });
 });
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.4').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.5').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
