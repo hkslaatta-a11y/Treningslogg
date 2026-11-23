@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.3';
+const APP_VERSION='2.7.4';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -55,6 +55,52 @@ const mePrograms=[
     ['Stående ab-wheel partials',3,'3–6','kontrollert',150,'Bruk vegg som stoppunkt',false,[]]
   ]}
 ];
+
+/* Valgfrie maler. Legges til eksisterende profiler uten aa erstatte egenredigerte programmer. */
+const meBonusTemplate={
+  name:'BONUSØKT',
+  notes:'Alle øvelsene er valgfrie. Ta igjen utelatte øvelser fra Uke, eller velg noen få teknikk-/overkroppsøvelser. Ikke legg til mye ekstra beinvolum.',
+  exercises:[
+    ['Pull-ups',2,'6–10','2–1–1–1',120,'Valgfri · RIR 2',true,['Chin-ups','Neutral-grip pull-ups']],
+    ['Dips',2,'8–12','kontrollert',120,'Valgfri · RIR 2',true,[]],
+    ['Chest-supported row',2,'8–12','3–1–1–1',120,'Valgfri · RIR 2',true,['Horizontal pull-ups']],
+    ['Feet-elevated pike push-ups / HSPU-progresjon',2,'5–8','kontrollert',120,'Valgfri teknikk',true,[]],
+    ['Sidehev',2,'12–20','2–0–1–1',90,'Valgfri · RIR 1–2',true,[]],
+    ['Cable hammer curl',2,'10–15','3–0–1–1',90,'Valgfri',true,[]],
+    ['Hanging leg raise',2,'8–15','kontrollert',90,'Valgfri · bekkenrull',true,[]],
+    ['Ab wheel rollout',2,'6–10','kontrollert',120,'Valgfri · teknikk først',true,[]],
+    ['Rygghev',2,'10–15','kontrollert',90,'Valgfri · korsrygg',true,[]]
+  ]
+};
+const me61225Template={
+  name:'6–12–25 · VALGFRI',
+  notes:'Valgfri alternativ økt, ikke et tillegg til A/B/C. To runder per blokk: A1→A2→A3, så B1→B2→B3. Ca. 10 sek mellom øvelser, 2–3 min etter A3/B3. Start med RIR 2–3, stopp ved teknikkfall. Appen viser øvelser enkeltvis – bytt mellom dem manuelt per runde.',
+  exercises:[
+    ['Smith benkpress',2,'6','kontrollert',10,'BRYST A1 · tung, RIR 2–3 · gå direkte til A2',false,[]],
+    ['Incline Smith press',2,'12','kontrollert',10,'BRYST A2 · moderat, RIR 2–3 · gå til A3',false,[]],
+    ['Cable flyes',2,'25','kontrollert',180,'BRYST A3 · lett, RIR 2–3 · 2–3 min pause før neste runde',false,[]],
+    ['Weighted pull-ups',2,'6','kontrollert',10,'RYGG B1 · RIR 2–3, bruk assistanse ved behov · gå til B2',false,['Pull-ups']],
+    ['Chest-supported row',2,'12','kontrollert',10,'RYGG B2 · moderat, RIR 2–3 · gå til B3',false,[]],
+    ['Straight-arm cable pulldown',2,'25','kontrollert',180,'RYGG B3 · lett, RIR 2–3 · 2–3 min pause før neste runde',false,[]]
+  ]
+};
+function optionalProgramExists(p,kind){
+  return (p?.programs||[]).some(x=>kind==='bonus'?/bonus/i.test(x.name||''):/6\s*[–-]\s*12\s*[–-]\s*25/.test(x.name||''));
+}
+function addOptionalProgram(kind,p=profile()){
+  if(!p)return null;
+  if(kind!=='bonus'&&kind!=='61225')return null;
+  const old=(p.programs||[]).find(x=>kind==='bonus'?/bonus/i.test(x.name||''):/6\s*[–-]\s*12\s*[–-]\s*25/.test(x.name||''));
+  if(old)return old;
+  const template=kind==='bonus'?meBonusTemplate:me61225Template;
+  const prefix=kind==='bonus'?'bonus-h-':'61225-h-';
+  const result=makePrograms([template],prefix)[0];
+  p.programs=p.programs||[];
+  p.programs.push(result);
+  ensureExerciseBank(state);
+  saveState();
+  return result;
+}
 
 const partnerPrograms=[
   {name:'ØKT A',notes:'Partnerprogram.',exercises:[
@@ -608,7 +654,7 @@ function finishWorkout(){
 }
 function renderProfileBar(){const sel=document.querySelector('#profileSelect');sel.innerHTML=state.profiles.map(p=>`<option value="${p.id}" ${p.id===state.currentProfileId?'selected':''}>${esc(p.name)}</option>`).join('');sel.onchange=e=>{if(state.active&&state.active.profileId!==e.target.value&&!confirm('Det pågår en økt på en annen profil. Bytte profil likevel?')){e.target.value=state.currentProfileId;return;}state.currentProfileId=e.target.value;saveState();renderAll();};}
 
-function defaultProgramsForProfile(pid){return pid==='partner'?makePrograms(partnerPrograms,'d'):makePrograms(mePrograms,'m');}
+function defaultProgramsForProfile(pid){return pid==='partner'?makePrograms(partnerPrograms,'d'):makePrograms([...mePrograms,meBonusTemplate],'m');}
 function exportPrograms(){
   const p=profile(),payload={format:'treningslogg-program-v1',exportedAt:new Date().toISOString(),profileName:p.name,programs:clone(p.programs||[])};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),a=document.createElement('a');
@@ -706,7 +752,9 @@ function openExerciseBankEditor(id,onSaved,onCancel=null){
   b.querySelector('#bankEditorClose').onclick=()=>onCancel?onCancel():openExerciseBank();
    b.querySelector('#beSave').onclick=()=>{const name=b.querySelector('#beName').value.trim();if(!name)return toast('Skriv navn på øvelsen');const item={id:e.id,name,targetSets:Math.max(1,+b.querySelector('#beSets').value||3),targetReps:b.querySelector('#beReps').value.trim(),tempo:b.querySelector('#beTempo').value.trim(),restSeconds:Math.max(0,+b.querySelector('#beRest').value||0),notes:b.querySelector('#beNotes').value.trim(),bodyweight:b.querySelector('#beBw').checked,muscleGroup:b.querySelector('#beMuscle').value,equipment:b.querySelector('#beBw').checked?'Kroppsvekt':b.querySelector('#beEquipment').value,alternatives:b.querySelector('#beAlts').value.split(',').map(x=>x.trim()).filter(Boolean)};const duplicate=(state.exerciseBank||[]).find(x=>x.id!==item.id&&normalizedName(x.name)===normalizedName(item.name));if(duplicate)return toast('Denne øvelsen finnes allerede i banken');const idx=(state.exerciseBank||[]).findIndex(x=>x.id===item.id);if(idx>=0)state.exerciseBank[idx]=item;else state.exerciseBank.push(item);state.exerciseBank.sort((a,b)=>a.name.localeCompare(b.name,'nb'));saveState();m.close();toast('Øvelse lagret i banken');if(onSaved)onSaved(clone(item));};if(!m.open)m.showModal();
 }
-function renderPrograms(){const el=document.querySelector('#programs'),p=profile();el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(p.name)}</span><h2>Treningsprogram</h2><p class="muted small">Programmet kan redigeres direkte på telefonen. Endringer synkroniseres til Supabase og den andre telefonen.</p></div><button class="ghost compact" id="newProgram">+ Nytt program</button></div><div class="card exercise-bank-card"><div class="row wrap"><div><span class="eyebrow">Felles for begge profiler</span><h3>Øvelsesbank</h3><p class="muted small">${(state.exerciseBank||[]).length} øvelser. Legg til nye øvelser én gang og bruk dem i hvilket som helst program.</p></div><button class="primary compact" id="openExerciseBank">Åpne bank</button></div></div><div class="card program-tools"><div class="row wrap"><div><h3>Programverktøy</h3><p class="muted small">Eksporter, importer eller gå tilbake til appens originalmal uten å påvirke treningshistorikken.</p></div></div><div class="program-tool-grid"><button class="ghost" id="exportPrograms">Eksporter program</button><label class="file-label program-import">Importer program<input type="file" id="importPrograms" accept="application/json,.json"></label><button class="danger" id="resetPrograms">Tilbakestill til original</button></div></div>${p.programs.map(pr=>`<div class="card program-card"><div class="row wrap"><div><h3>${esc(pr.name)}</h3><div class="muted small">${pr.exercises.filter(e=>!e.optional).length} faste · ${pr.exercises.filter(e=>e.optional).length} valgfrie</div></div><div class="actions"><button class="ghost compact" data-edit-program="${pr.id}">Rediger</button><button class="primary compact" data-start="${pr.id}">Start</button></div></div><p class="muted small">${esc(pr.notes)}</p>${pr.exercises.map(e=>`<div class="exercise"><div class="exercise-title">${esc(e.name)} ${e.optional?'<span class="tag">Valgfri</span>':''} ${isBodyweightExercise(e)?'<span class="tag bw-tag">KV</span>':''}</div><div class="meta">${e.targetSets} × ${esc(e.targetReps||'–')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${e.alternatives?.length?` · Alt: ${esc(e.alternatives.join(' / '))}`:''}</div><div class="last">${lastSummary(e.name)?`Sist: ${esc(lastSummary(e.name))}`:'Ingen tidligere logg'}</div></div>`).join('')}</div>`).join('')}`;
+function renderPrograms(){const el=document.querySelector('#programs'),p=profile();const offerBonus=p.id==='me'&&!optionalProgramExists(p,'bonus');const offer61225=p.id==='me'&&!optionalProgramExists(p,'61225');el.innerHTML=`<div class="card hero"><div><span class="eyebrow">${esc(p.name)}</span><h2>Treningsprogram</h2><p class="muted small">Programmet kan redigeres direkte på telefonen. Endringer synkroniseres til Supabase og den andre telefonen.</p></div><button class="ghost compact" id="newProgram">+ Nytt program</button></div>${p.id==='me'?(offerBonus||offer61225?`<div class="card"><h3>Valgfrie økter</h3><p class="muted small">Disse legges til uten å endre A/B/C eller tidligere treningsøkter.</p><div class="actions">${offerBonus?'<button type="button" class="ghost compact" id="installMeBonus">+ BONUSØKT</button>':''}${offer61225?'<button type="button" class="ghost compact" id="install61225">+ 6–12–25</button>':''}</div></div>`:'') :''}<div class="card exercise-bank-card"><div class="row wrap"><div><span class="eyebrow">Felles for begge profiler</span><h3>Øvelsesbank</h3><p class="muted small">${(state.exerciseBank||[]).length} øvelser. Legg til nye øvelser én gang og bruk dem i hvilket som helst program.</p></div><button class="primary compact" id="openExerciseBank">Åpne bank</button></div></div><div class="card program-tools"><div class="row wrap"><div><h3>Programverktøy</h3><p class="muted small">Eksporter, importer eller gå tilbake til appens originalmal uten å påvirke treningshistorikken.</p></div></div><div class="program-tool-grid"><button class="ghost" id="exportPrograms">Eksporter program</button><label class="file-label program-import">Importer program<input type="file" id="importPrograms" accept="application/json,.json"></label><button class="danger" id="resetPrograms">Tilbakestill til original</button></div></div>${p.programs.map(pr=>`<div class="card program-card"><div class="row wrap"><div><h3>${esc(pr.name)}</h3><div class="muted small">${pr.exercises.filter(e=>!e.optional).length} faste · ${pr.exercises.filter(e=>e.optional).length} valgfrie</div></div><div class="actions"><button class="ghost compact" data-edit-program="${pr.id}">Rediger</button><button class="primary compact" data-start="${pr.id}">Start</button></div></div><p class="muted small">${esc(pr.notes)}</p>${pr.exercises.map(e=>`<div class="exercise"><div class="exercise-title">${esc(e.name)} ${e.optional?'<span class="tag">Valgfri</span>':''} ${isBodyweightExercise(e)?'<span class="tag bw-tag">KV</span>':''}</div><div class="meta">${e.targetSets} × ${esc(e.targetReps||'–')}${e.tempo?` · Tempo ${esc(e.tempo)}`:''}${e.notes?` · ${esc(e.notes)}`:''}${e.alternatives?.length?` · Alt: ${esc(e.alternatives.join(' / '))}`:''}</div><div class="last">${lastSummary(e.name)?`Sist: ${esc(lastSummary(e.name))}`:'Ingen tidligere logg'}</div></div>`).join('')}</div>`).join('')}`;
+  const installBonus=el.querySelector('#installMeBonus');if(installBonus)installBonus.onclick=()=>{addOptionalProgram('bonus');renderAll();toast('BONUSØKT lagt til. Du kan nå hente øvelser fra Uke.');};
+  const install61225=el.querySelector('#install61225');if(install61225)install61225.onclick=()=>{addOptionalProgram('61225');renderAll();toast('6–12–25 er lagt til som valgfritt alternativ.');};
   el.querySelector('#openExerciseBank').onclick=openExerciseBank;el.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>openWorkoutSetup(p.programs.find(x=>x.id===b.dataset.start)));el.querySelectorAll('[data-edit-program]').forEach(b=>b.onclick=()=>openProgramEditor(b.dataset.editProgram));el.querySelector('#newProgram').onclick=()=>openProgramEditor(null);el.querySelector('#exportPrograms').onclick=exportPrograms;el.querySelector('#importPrograms').onchange=importPrograms;el.querySelector('#resetPrograms').onclick=resetProgramsToOriginal;
 }
 function openProgramEditor(programId,restore=null){
@@ -903,8 +951,9 @@ function renderWeek(){
   if(btn)btn.onclick=()=>{
     const selected=[...el.querySelectorAll('[data-week-select]:checked')].map(x=>pending[+x.dataset.weekSelect]);
     if(!selected.length)return toast('Velg minst én øvelse');
-    const p=profile().programs.find(x=>/bonus/i.test(x.name||''));
+    const p=profile().programs.find(x=>/bonus/i.test(x.name||''))||(profile().id==='me'?addOptionalProgram('bonus'):null);
     if(!p)return toast('Opprett en BONUSØKT i programmet først');
+    renderPrograms();
     openWorkoutSetup(p,selected.map(x=>({...x.spec,targetSets:Math.max(1,x.remaining)})));
   };
 }
@@ -950,4 +999,4 @@ document.addEventListener('click',e=>{
     p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
   });
 });
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.3').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.4').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
