@@ -91,7 +91,7 @@ const me61225Template={
   ]
 };
 function canExtend61225(pr){
-  if(!pr||!/6\\s*[–-]\\s*12\\s*[–-]\\s*25/.test(pr.name||''))return false;
+  if(!pr||!/6\s*[–-]\s*12\s*[–-]\s*25/.test(pr.name||''))return false;
   const existing=pr.exercises||[];
   return me61225Template.exercises.slice(6).some((e,i)=>
     !existing.some(x=>x.id===`61225-h-p0e${i+6}`||normalizedName(x.name)===normalizedName(e[0])));
@@ -627,7 +627,7 @@ function openWorkoutSetup(p,extras=[]){
     body.querySelectorAll('[data-setup-swap]').forEach(x=>x.onclick=()=>{
       const idx=+x.dataset.setupSwap;
       openBankPicker(item=>{
-        if(/6\\s*[–-]\\s*12\\s*[–-]\\s*25/.test(p.name||'')){
+        if(/6\s*[–-]\s*12\s*[–-]\s*25/.test(p.name||'')){
           // Behold metoden selv om en øvelse byttes i øktplanleggingen.
           const old=rows[idx].item;
           rows[idx].item={...clone(item),id:old.id,name:item.name,bodyweight:!!item.bodyweight,
