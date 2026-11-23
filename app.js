@@ -1,5 +1,5 @@
 const STORAGE_KEY='treningslogg-pwa-v1';
-const APP_VERSION='2.7.5';
+const APP_VERSION='2.7.6';
 const SHOW_SPLASH_KEY='treningslogg-show-splash-v1';
 const THEME_KEY='treningslogg-theme-v1';
 const CLOUD_CONFIG_KEY='treningslogg-cloud-config-v1';
@@ -649,14 +649,77 @@ function openWorkoutSetup(p,extras=[]){
         tempo:r.origin.tempo,restSeconds:r.origin.restSeconds,notes:r.origin.notes,
         bodyweight:r.origin.bodyweight,reason:r.selected?'replaced':'skipped'
       }));
+      const giant=/6\s*[–-]\s*12\s*[–-]\s*25/.test(p.name||'');
+      const picked=rows.filter(r=>r.selected);
+      if(giant){
+        const groups=new Map();
+        for(const r of picked){
+          const stage=parseGiantStage(r.item);
+          if(!stage)return toast('Velg hele 6–12–25-blokker fra A/B/C/D.');
+          if(!groups.has(stage.group))groups.set(stage.group,new Set());
+          groups.get(stage.group).add(stage.position);
+        }
+        if([...groups.values()].some(x=>x.size!==3))return toast('Velg hele blokker med 6, 12 og 25 reps.');
+      }
       state.active={id:uid(),profileId:state.currentProfileId,programID:p.id,name:p.name,
         startedAt:new Date().toISOString(),notes:'',omittedExercises,
-        exercises:rows.filter(r=>r.selected).map(r=>workoutExerciseFromPlan(r.item,r.origin))};
+        exercises:picked.map(r=>workoutExerciseFromPlan(r.item,r.origin))};
+      if(giant)state.active.giantMode={step:0};
       saveState();modal.close();setTab('workout');
     };
   };
   draw();if(!modal.open)modal.showModal();
 }
+
+const GIANT_GROUP_LABELS={A:'Bryst',B:'Rygg',C:'Skuldre',D:'Armer'};
+function parseGiantStage(ex){
+  const match=String(ex?.notes||'').match(/\b([ABCD])([123])\b/);
+  return match?{group:match[1],position:Number(match[2]),label:match[1]+match[2]}:null;
+}
+function giantSteps(workout){
+  if(!workout?.giantMode)return [];
+  const buckets=new Map();
+  for(const ex of workout.exercises||[]){
+    const stage=parseGiantStage(ex);if(!stage)continue;
+    if(!buckets.has(stage.group))buckets.set(stage.group,new Map());
+    buckets.get(stage.group).set(stage.position,ex);
+  }
+  const steps=[];
+  for(const group of ['A','B','C','D']){
+    const b=buckets.get(group);
+    if(!b||![1,2,3].every(i=>b.has(i)))continue;
+    const rounds=Math.max(1,...[1,2,3].map(i=>b.get(i).sets?.length||0));
+    for(let round=0;round<rounds;round++){
+      for(let pos=1;pos<=3;pos++){
+        const exercise=b.get(pos),set=exercise.sets?.[round];
+        if(set)steps.push({group,round:round+1,position:pos,label:group+pos,exercise,set});
+      }
+    }
+  }
+  return steps;
+}
+function currentGiantStep(a=state.active){
+  const steps=giantSteps(a);if(!steps.length)return null;
+  const idx=Math.min(steps.length-1,Math.max(0,Number(a.giantMode.step)||0));
+  return {steps,idx,...steps[idx]};
+}
+function goGiantStep(index){
+  if(!state.active?.giantMode)return;
+  const steps=giantSteps(state.active);if(!steps.length)return;
+  state.active.giantMode.step=Math.min(steps.length-1,Math.max(0,Number(index)||0));
+  saveState();renderWorkout();
+}
+function giantAdvanceAfterComplete(eid,sid){
+  if(!state.active?.giantMode)return false;
+  const step=currentGiantStep();
+  if(!step||step.exercise.id!==eid||step.set.id!==sid)return false;
+  const hasNext=step.idx+1<step.steps.length;
+  if(hasNext)state.active.giantMode.step=step.idx+1;
+  saveState();
+  if(hasNext)startTimer(step.position===3?180:10);
+  return true;
+}
+
 function addSet(eid){const e=state.active?.exercises.find(x=>x.id===eid);if(!e)return;e.sets.push(newSetForExercise(e,false));saveState();renderWorkout();}
 function removeLastSet(eid){
   const e=state.active?.exercises.find(x=>x.id===eid);if(!e||e.sets.length<=1)return;
@@ -677,7 +740,11 @@ function removeExercise(eid){
   a.exercises=a.exercises.filter(x=>x.id!==eid);saveState();renderWorkout();
 }
 function updateSet(eid,sid,key,value){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s[key]=value;if(key==='loadType'&&value==='bw')s.weight='';saveState();if(key==='loadType')renderWorkout();else updateWorkoutSummary();}
-function toggleSet(eid,sid){const e=state.active?.exercises.find(x=>x.id===eid),s=e?.sets.find(x=>x.id===sid);if(!s)return;s.completed=!s.completed;if(s.completed&&e.restSeconds)startTimer(e.restSeconds);saveState();renderWorkout();}
+function toggleSet(eid,sid){const e=state.active?.exercises.find(x=>x.id===eid),st=e?.sets.find(x=>x.id===sid);if(!st)return;st.completed=!st.completed;
+  const moved=st.completed&&giantAdvanceAfterComplete(eid,sid);
+  if(!moved&&st.completed&&e.restSeconds&&!state.active?.giantMode)startTimer(e.restSeconds);
+  saveState();renderWorkout();
+}
 function startTimer(sec){state.timer={end:Date.now()+sec*1000,duration:sec};saveState();tickTimer();clearInterval(timerHandle);timerHandle=setInterval(tickTimer,1000);}
 function stopTimer(){state.timer=null;saveState();clearInterval(timerHandle);timerHandle=null;renderWorkout();}
 function tickTimer(){if(!state.timer)return;const left=Math.max(0,Math.ceil((state.timer.end-Date.now())/1000)),el=document.querySelector('#timerValue');if(el)el.textContent=`${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}`;if(left<=0){stopTimer();toast('Pause ferdig');}}
@@ -1049,4 +1116,4 @@ document.addEventListener('click',e=>{
     p.closest('.reaction-area')?.querySelector('[data-react-toggle]')?.setAttribute('aria-expanded','false');
   });
 });
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.5').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));document.querySelector('#installHelpBtn').addEventListener('click',installHelp);if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=2.7.6').catch(()=>{}));renderAll();initCloud().then(()=>renderAll());
