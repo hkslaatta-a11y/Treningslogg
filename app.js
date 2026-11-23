@@ -626,7 +626,16 @@ function openWorkoutSetup(p,extras=[]){
     body.querySelectorAll('[data-setup-del]').forEach(x=>x.onclick=()=>{rows.splice(+x.dataset.setupDel,1);draw();});
     body.querySelectorAll('[data-setup-swap]').forEach(x=>x.onclick=()=>{
       const idx=+x.dataset.setupSwap;
-      openBankPicker(item=>{rows[idx].item={...clone(item),targetSets:rows[idx].item.targetSets};rows[idx].selected=true;draw();if(!modal.open)modal.showModal();},{allowCreate:true,onCancel:()=>{draw();if(!modal.open)modal.showModal();}});
+      openBankPicker(item=>{
+        if(/6\\s*[–-]\\s*12\\s*[–-]\\s*25/.test(p.name||'')){
+          // Behold metoden selv om en øvelse byttes i øktplanleggingen.
+          const old=rows[idx].item;
+          rows[idx].item={...clone(item),id:old.id,name:item.name,bodyweight:!!item.bodyweight,
+            targetSets:old.targetSets,targetReps:old.targetReps,tempo:old.tempo,
+            restSeconds:old.restSeconds,notes:old.notes,optional:old.optional};
+        }else rows[idx].item={...clone(item),targetSets:rows[idx].item.targetSets};
+        rows[idx].selected=true;draw();if(!modal.open)modal.showModal();
+      },{allowCreate:true,onCancel:()=>{draw();if(!modal.open)modal.showModal();}});
     });
     body.querySelector('#setupAdd').onclick=()=>openBankPicker(item=>{
       rows.push({origin:null,item:{...clone(item),id:uid()},selected:true,extra:true,suggested:false});
