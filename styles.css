@@ -131,3 +131,16 @@ body.is-reordering{touch-action:none!important;user-select:none;-webkit-user-sel
 }
 .reaction-picker[hidden]{display:none!important}
 .reaction-picker .reaction-btn{flex:0 0 40px}
+
+/* 2.7.6 – fokusert 6–12–25-modus */
+.workout-exercise[hidden],.set-row[hidden]{display:none!important}
+.giant-panel{border-color:var(--accent-strong);overflow:hidden}
+.giant-panel h3{font-size:19px;line-height:1.3;margin:10px 0 8px}
+.giant-progress{display:flex;gap:6px;overflow-x:auto;padding:8px 1px 12px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.giant-step{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-width:46px;min-height:50px;border:1px solid var(--line);border-radius:12px;
+  background:var(--card2);color:var(--muted);font-size:13px;font-weight:800;scroll-snap-align:center}
+.giant-step small{font-size:10px;opacity:.8;font-weight:500}
+.giant-step.current{background:var(--accent2);color:var(--text);border-color:var(--accent-strong)}
+.giant-step.done:not(.current){border-color:var(--good);color:var(--good)}
+.giant-panel .row.wrap{justify-content:space-between}
